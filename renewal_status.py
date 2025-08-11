@@ -65,7 +65,11 @@ class StateDetector:
         r"\bsuccessfully activated\b",
         r"\brenewal successful\b",
         r"\bsubscription.*(?:current|existing)\b",
-        r"\baccess.*verified\b"
+        r"\baccess.*verified\b",
+        r"\bredemption successful\b",  # WSJ redemption pattern
+        r"\bthank you for subscribing\b",  # WSJ subscription confirmation
+        r"\byou now have full access\b",  # WSJ full access confirmation
+        r"\bconfirmation (?:no|number)\b"  # WSJ confirmation number pattern
     ]
     
     # Direct subscription patterns (warning state)
@@ -116,10 +120,19 @@ class StateDetector:
             return RenewalStatus.SUCCESS_WITH_WARNING, RenewalMessage.WARN_DIRECT_SUBSCRIPTION
         
         # Check for success patterns
-        if any(re.search(pattern, text_lower) for pattern in StateDetector.SUCCESS_PATTERNS):
-            # Extract expiration date if present
-            expiration_date = StateDetector._extract_expiration_date(page_text)
-            return RenewalStatus.SUCCESS, RenewalMessage.format_success(expiration_date)
+        for pattern in StateDetector.SUCCESS_PATTERNS:
+            if re.search(pattern, text_lower):
+                # Log specific success pattern detected
+                if "redemption successful" in text_lower:
+                    print(f"✅ WSJ Redemption Successful detected - marking as SUCCESS")
+                elif "confirmation" in text_lower and ("no" in text_lower or "number" in text_lower):
+                    print(f"✅ WSJ Confirmation number detected - marking as SUCCESS")
+                elif "thank you for subscribing" in text_lower:
+                    print(f"✅ WSJ subscription thank you detected - marking as SUCCESS")
+                
+                # Extract expiration date if present
+                expiration_date = StateDetector._extract_expiration_date(page_text)
+                return RenewalStatus.SUCCESS, RenewalMessage.format_success(expiration_date)
         
         # WSJ specific: Check URL for success
         if "wsj.com" in url and not any(x in url for x in ["login", "activate", "partner.wsj.com"]):

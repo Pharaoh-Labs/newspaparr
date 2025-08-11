@@ -37,6 +37,10 @@ class StateDetector:
             page_text = driver.find_element(By.TAG_NAME, 'body').text.lower()
             current_url = driver.current_url.lower()
             
+            # Log key patterns found for debugging (only in specific contexts)
+            if context == "final_verification":
+                StateDetector._log_detected_patterns(page_text, newspaper_type)
+            
             # Check SUCCESS states first (most specific patterns)
             success_result = StateDetector._check_success_patterns(page_text, newspaper_type)
             if success_result[0] != "CONTINUE":
@@ -77,9 +81,24 @@ class StateDetector:
                 return ("SUCCESS_WITH_WARNING", "NYT account has direct subscription (no library pass needed)")
         
         elif newspaper_type == 'wsj':
-            # WSJ SUCCESS patterns (require BOTH parts for accuracy)
+            # WSJ SUCCESS patterns
             if "welcome back" in page_text and "looks like you already have a subscription" in page_text:
                 return ("SUCCESS", "WSJ pass active from previous claim")
+            
+            # WSJ Redemption successful pattern
+            if "redemption successful" in page_text:
+                logger.info("✅ WSJ redemption successful pattern detected")
+                return ("SUCCESS", "WSJ redemption successful")
+            
+            # WSJ subscription confirmation patterns
+            if "thank you for subscribing" in page_text and "you now have full access to wsj.com" in page_text:
+                logger.info("✅ WSJ subscription confirmation detected")
+                return ("SUCCESS", "WSJ subscription confirmed - Full access granted")
+            
+            # WSJ confirmation number pattern (indicates successful redemption)
+            if "confirmation no." in page_text or "confirmation number" in page_text:
+                logger.info("✅ WSJ confirmation number detected - indicates successful redemption")
+                return ("SUCCESS", "WSJ redemption confirmed with confirmation number")
         
         return ("CONTINUE", None)
     
@@ -184,6 +203,40 @@ class StateDetector:
         StateDetector.captcha_attempts = {}
         StateDetector.library_portal_count = 0
         logger.debug("Reset all state detection counters")
+    
+    @staticmethod
+    def _log_detected_patterns(page_text: str, newspaper_type: str):
+        """Log detected patterns for debugging purposes"""
+        # Key patterns to look for
+        patterns_to_check = {
+            "redemption": "redemption" in page_text,
+            "successful": "successful" in page_text,
+            "confirmation": "confirmation" in page_text,
+            "thank you": "thank you" in page_text,
+            "full access": "full access" in page_text,
+            "subscription": "subscription" in page_text,
+            "welcome": "welcome" in page_text,
+            "error": "error" in page_text,
+            "failed": "failed" in page_text,
+            "invalid": "invalid" in page_text,
+            "expired": "expired" in page_text,
+            "receipt": "receipt" in page_text,
+            "email": "email" in page_text
+        }
+        
+        detected = [key for key, found in patterns_to_check.items() if found]
+        if detected:
+            logger.info(f"📋 Patterns detected on {newspaper_type.upper()} page: {', '.join(detected)}")
+        
+        # Log specific phrases if found
+        if "redemption successful" in page_text:
+            logger.info("🎯 Found 'redemption successful' - marking as SUCCESS")
+        if "confirmation no" in page_text or "confirmation number" in page_text:
+            logger.info("🎯 Found confirmation number - marking as SUCCESS")
+        if "thank you for subscribing" in page_text:
+            logger.info("🎯 Found subscription thank you message - marking as SUCCESS")
+        if "you now have full access" in page_text:
+            logger.info("🎯 Found full access confirmation - marking as SUCCESS")
 
 
 def check_current_state(driver, newspaper_type: str, context: str = "") -> Tuple[str, Optional[str]]:
