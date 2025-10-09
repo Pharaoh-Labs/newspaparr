@@ -21,7 +21,6 @@ RUN apt-get update && apt-get install -y \
     xauth \
     libglib2.0-0 \
     libnss3 \
-    libgconf-2-4 \
     libfontconfig1 \
     tesseract-ocr \
     tesseract-ocr-eng \
