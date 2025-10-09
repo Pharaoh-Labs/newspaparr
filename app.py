@@ -33,7 +33,7 @@ from library_adapters import LibraryAdapterFactory
 from renewal_engine import RenewalEngine
 
 # Application version
-__version__ = '0.5.26'
+__version__ = '0.6.0'
 
 # Validate configuration at startup
 if __name__ == '__main__':
@@ -965,29 +965,45 @@ def run_account_renewal(account_id):
         account = Account.query.get(account_id)
         if not account or not account.active:
             return
-        
-        # Always use GUI mode with virtual display for better anti-detection
-        headless = False
-        renewal_engine = RenewalEngine(headless=headless)
-        success, result_url, expiration_datetime = renewal_engine.renew_account(account)
-        
-        # Update renewal tracking
-        account.last_renewal = datetime.utcnow()
-        
-        # Use expiration date + 1 minute if available, otherwise fall back to 24h intervals
-        if success and expiration_datetime:
-            # Schedule next renewal for 1 minute after pass expires
-            account.next_renewal = expiration_datetime + timedelta(minutes=1)
-            logger.info(f"📅 Scheduled next renewal for {account.name} ({account.newspaper_type.upper()}) based on expiration: {account.next_renewal}")
-        else:
-            # Fallback to intervals + 1 minute when no expiration date available
-            account.next_renewal = datetime.utcnow() + timedelta(hours=account.effective_renewal_interval, minutes=1)
-            logger.info(f"⏰ Scheduled next renewal for {account.name} ({account.newspaper_type.upper()}) using {account.effective_renewal_interval}h 1m interval: {account.next_renewal}")
-        
-        db.session.commit()
-        
-        # Reschedule the account renewal with updated timing
-        schedule_account_renewal(account)
+
+        try:
+            # Always use GUI mode with virtual display for better anti-detection
+            headless = False
+            renewal_engine = RenewalEngine(headless=headless)
+            success, result_url, expiration_datetime = renewal_engine.renew_account(account)
+
+            # Update renewal tracking
+            account.last_renewal = datetime.utcnow()
+
+            # Use expiration date + 1 minute if available, otherwise fall back to 24h intervals
+            if success and expiration_datetime:
+                # Schedule next renewal for 1 minute after pass expires
+                account.next_renewal = expiration_datetime + timedelta(minutes=1)
+                logger.info(f"📅 Scheduled next renewal for {account.name} ({account.newspaper_type.upper()}) based on expiration: {account.next_renewal}")
+            else:
+                # Fallback to intervals + 1 minute when no expiration date available
+                account.next_renewal = datetime.utcnow() + timedelta(hours=account.effective_renewal_interval, minutes=1)
+                logger.info(f"⏰ Scheduled next renewal for {account.name} ({account.newspaper_type.upper()}) using {account.effective_renewal_interval}h 1m interval: {account.next_renewal}")
+
+            db.session.commit()
+
+        except Exception as e:
+            logger.error(f"Error during scheduled renewal for {account.name}: {str(e)}")
+            # On error, still schedule next attempt using the fallback interval
+            try:
+                account.next_renewal = datetime.utcnow() + timedelta(hours=account.effective_renewal_interval, minutes=1)
+                db.session.commit()
+                logger.info(f"⏰ Scheduled retry for {account.name} ({account.newspaper_type.upper()}) using {account.effective_renewal_interval}h 1m interval despite error")
+            except Exception as commit_error:
+                logger.error(f"Failed to update next_renewal after error: {commit_error}")
+
+        finally:
+            # CRITICAL: Always reschedule, even if renewal failed
+            # This ensures continuous renewal attempts
+            try:
+                schedule_account_renewal(account)
+            except Exception as schedule_error:
+                logger.error(f"Failed to reschedule renewal for {account.name}: {schedule_error}")
 
 def init_db():
     """Initialize database"""
