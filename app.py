@@ -19,19 +19,19 @@ import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
-from flask_migrate import Migrate
-from flask_sqlalchemy import SQLAlchemy
 from flask_wtf import FlaskForm
 from werkzeug.middleware.proxy_fix import ProxyFix
 from wtforms import (BooleanField, IntegerField, PasswordField, SelectField,
                      StringField, TextAreaField)
 from wtforms.validators import DataRequired, NumberRange
 
+from extensions import db, migrate
 from icons import icon
+from models import Account, LibraryConfig, RenewalLog
 from paths import DATA_DIR, DEFAULT_DB_URL, LOGS_DIR, SCREENSHOTS_DIR
 import notify
 from renewer import State, renew
-from secrets_at_rest import EncryptedString, migrate_plaintext_rows
+from secrets_at_rest import migrate_plaintext_rows
 
 __version__ = '1.1.0'
 
@@ -152,9 +152,9 @@ def inject_app_info():
         'account_count': account_count,
     }
 
-# Initialize database
-db = SQLAlchemy(app)
-migrate = Migrate(app, db)
+# Bind extensions to this app
+db.init_app(app)
+migrate.init_app(app, db)
 
 # Setup logging to both file and console
 import logging.handlers
@@ -207,68 +207,7 @@ def init_scheduler():
         return True
     return False
 
-# Database Models
-
-class Account(db.Model):
-    """Account configuration model"""
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    library_type = db.Column(db.String(50), nullable=False)
-    library_username = db.Column(db.String(100), nullable=False)
-    library_password = db.Column(EncryptedString(500), nullable=False)
-    username = db.Column(db.String(100), nullable=True)
-    password = db.Column(EncryptedString(500), nullable=True)
-    newspaper_type = db.Column(db.String(20), nullable=False, default='nyt')
-    
-    renewal_hours = db.Column(db.Integer, default=24)
-    renewal_interval = db.Column(db.Integer, nullable=True)  # Optional override, inherits from library if null
-    active = db.Column(db.Boolean, default=True)
-    last_renewal = db.Column(db.DateTime)
-    next_renewal = db.Column(db.DateTime)
-    created_at = db.Column(db.DateTime, default=utcnow)
-    profile_captured_at = db.Column(db.DateTime, nullable=True)
-    
-    @property
-    def display_name(self):
-        return f"{self.name} (NYT)"
-
-    @property
-    def effective_renewal_interval(self):
-        """Get the effective renewal interval - account override or library default"""
-        if self.renewal_interval is not None:
-            return self.renewal_interval
-        
-        # Look up library config for default
-        library = LibraryConfig.query.filter_by(type=self.library_type, active=True).first()
-        if library:
-            return library.default_renewal_hours
-        
-        # Fallback to system default
-        return self.renewal_hours or 24
-
-class LibraryConfig(db.Model):
-    """Library configuration model"""
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    type = db.Column(db.String(50), nullable=False)
-    homepage = db.Column(db.String(500))
-    nyt_url = db.Column(db.String(500))  # Direct NYT access URL
-    custom_config = db.Column(db.Text)
-    default_renewal_hours = db.Column(db.Integer, default=24)
-    active = db.Column(db.Boolean, default=True)
-
-class RenewalLog(db.Model):
-    """Renewal log model"""
-    id = db.Column(db.Integer, primary_key=True)
-    account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False)
-    timestamp = db.Column(db.DateTime, default=utcnow)
-    success = db.Column(db.Boolean, nullable=False)
-    message = db.Column(db.Text)
-    duration_seconds = db.Column(db.Integer)
-    result_url = db.Column(db.String(500))
-    screenshot_filename = db.Column(db.String(255))  # Final screenshot filename
-
-# Forms
+# Models live in models.py and are imported above. Forms follow.
 class AccountForm(FlaskForm):
     """Form for account configuration. NYT credentials are optional —
     cookies captured via the dashboard's noVNC capture flow are the primary
