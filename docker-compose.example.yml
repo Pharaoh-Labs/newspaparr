@@ -18,8 +18,9 @@ services:
       # ~80 services (Discord, ntfy, Telegram, Slack, mailto, gotify, etc.)
       # - APPRISE_URLS=ntfy://ntfy.sh/your-topic
 
-      # Optional: verbose logging
-      # - DEBUG_MODE=false
+      # Optional: enable Flask debug mode (verbose errors + auto-reload).
+      # Do NOT enable in production — it exposes an interactive debugger.
+      # - FLASK_DEBUG=true
 
       # Optional: behind a reverse proxy
       # - BEHIND_PROXY=true
