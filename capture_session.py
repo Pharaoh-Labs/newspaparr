@@ -5,17 +5,31 @@ newspaper inside an embedded noVNC viewer. The Chrome user-data-dir is
 persistent per account, so the renewal flow can later launch headless with
 the same profile (cookies, localStorage, DataDome trust) that the user
 established interactively.
+
+Subprocess lifecycle is defended on three layers because any of them can
+fail silently:
+  1. A boot sweep kills leftovers from a previous worker on our managed
+     ports/display *before* we start anything (so gunicorn --reload doesn't
+     accumulate orphans).
+  2. atexit stops all active sessions on graceful shutdown.
+  3. SIGTERM/SIGINT handlers stop sessions on signaled shutdown (atexit
+     doesn't always fire under signals, especially in gunicorn).
 """
 
+import atexit
+import logging
 import os
 import secrets
 import shutil
+import signal
 import subprocess
 import threading
 import time
 from typing import Optional
 
 from paths import DATA_DIR
+
+logger = logging.getLogger(__name__)
 
 PROFILES_DIR = os.path.join(DATA_DIR, 'profiles')
 os.makedirs(PROFILES_DIR, exist_ok=True)
@@ -235,6 +249,30 @@ class CaptureSession:
         self.state = 'stopped'
 
 
+def sweep_orphans() -> None:
+    """Kill leftover Xvfb/x11vnc/websockify/chromium from a prior worker
+    that died without stopping its sessions (e.g., gunicorn --reload, OOM,
+    SIGKILL). Called at boot — never let a previous incarnation strand
+    subprocesses on our managed display/ports."""
+    patterns = [
+        f'Xvfb.*:{DISPLAY_NUM}',
+        f'x11vnc.*:{DISPLAY_NUM}',
+        f'websockify.*:{WS_PORT}',
+        f'chromium.*--user-data-dir={PROFILES_DIR}',
+        f'chrome.*--user-data-dir={PROFILES_DIR}',
+    ]
+    killed_any = False
+    for pat in patterns:
+        # Don't fail loud if pkill is missing or finds nothing.
+        result = subprocess.run(['pkill', '-f', pat],
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL)
+        if result.returncode == 0:
+            killed_any = True
+    if killed_any:
+        logger.info("capture_session: swept orphan subprocesses on boot")
+
+
 class CaptureSessionManager:
     _instance = None
     _lock = threading.Lock()
@@ -245,7 +283,56 @@ class CaptureSessionManager:
                 inst = super().__new__(cls)
                 inst.sessions = {}
                 cls._instance = inst
+                inst._install_shutdown_hooks()
+                # Boot sweep — runs once per worker. Cheap if there's nothing
+                # to kill; critical when --reload recycled us mid-capture.
+                sweep_orphans()
         return cls._instance
+
+    def _install_shutdown_hooks(self) -> None:
+        """Register atexit + SIGTERM handlers so sessions die with us.
+
+        atexit fires on normal interpreter exit. Signals don't always run
+        atexit (gunicorn sends SIGTERM and the worker may not unwind cleanly),
+        so we also install signal handlers that stop sessions and chain to
+        the prior handler. Idempotent — if hooks were already installed by
+        a prior singleton, we no-op."""
+        if getattr(self, '_hooks_installed', False):
+            return
+        atexit.register(self.stop_all)
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                prev = signal.getsignal(sig)
+            except (ValueError, OSError):
+                continue  # not running in main thread; gunicorn handles it
+
+            def _handler(signum, frame, _prev=prev):
+                try:
+                    self.stop_all()
+                finally:
+                    if callable(_prev) and _prev not in (signal.SIG_DFL, signal.SIG_IGN):
+                        _prev(signum, frame)
+                    elif _prev == signal.SIG_DFL:
+                        # Re-raise the default action (terminate).
+                        signal.signal(signum, signal.SIG_DFL)
+                        os.kill(os.getpid(), signum)
+            try:
+                signal.signal(sig, _handler)
+            except (ValueError, OSError):
+                pass  # not in main thread
+        self._hooks_installed = True
+
+    def stop_all(self) -> None:
+        """Stop every tracked session. Safe to call multiple times."""
+        with self._lock:
+            sessions = list(self.sessions.values())
+            self.sessions.clear()
+        for s in sessions:
+            try:
+                s.stop()
+            except Exception as e:  # noqa: BLE001 — best-effort shutdown
+                logger.warning("capture_session: stop_all failed for %s: %s",
+                               s.token, e)
 
     def start(self, account_id: int, start_url: str) -> CaptureSession:
         with self._lock:

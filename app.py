@@ -191,6 +191,13 @@ else:
     logger = logging.getLogger(__name__)
     logger.info("📝 Logging already configured, using existing configuration")
 
+# Boot the CaptureSessionManager singleton early so its boot-sweep runs and
+# its atexit/SIGTERM hooks register *before* the worker starts handling
+# traffic. Without this the sweep is lazy and a gunicorn --reload between
+# requests can leave Xvfb/x11vnc/websockify orphans.
+from capture_session import CaptureSessionManager as _CSM
+_CSM()
+
 # Initialize scheduler (delayed to avoid app context issues)
 scheduler = None
 
