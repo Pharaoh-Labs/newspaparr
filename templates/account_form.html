@@ -37,8 +37,18 @@
                             {% if form.library_username.errors %}<p class="mt-1 text-xs text-red-600">{{ form.library_username.errors[0] }}</p>{% endif %}
                         </div>
                         <div>
-                            {{ form.library_password.label(class="label") }}
-                            {{ form.library_password(class="input", placeholder=("Leave blank to keep current" if account else "PIN or password")) }}
+                            <div class="flex items-center justify-between mb-1.5">
+                                {{ form.library_password.label(class="label !mb-0") }}
+                                {% if account %}
+                                <span class="inline-flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400">
+                                    {{ icon('check', cls='w-3 h-3') }} Password on file
+                                </span>
+                                {% endif %}
+                            </div>
+                            {{ form.library_password(class="input", placeholder=("Type a new password to replace it" if account else "PIN or password")) }}
+                            {% if account %}
+                            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">For your security we never display saved passwords. Leave this field blank to keep the existing one.</p>
+                            {% endif %}
                             {% if form.library_password.errors %}<p class="mt-1 text-xs text-red-600">{{ form.library_password.errors[0] }}</p>{% endif %}
                         </div>
                     </div>
