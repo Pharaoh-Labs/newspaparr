@@ -3,7 +3,6 @@ Flask web application for NYT Auto-Renewal System
 Provides web UI for configuration, monitoring, and management
 """
 
-import atexit
 import logging
 import os
 import secrets
@@ -18,9 +17,8 @@ from forms import AccountForm, EditAccountForm, LibraryForm
 from helpers import execute_renewal, utcnow
 from icons import icon
 from models import Account, LibraryConfig, RenewalLog
-from paths import DATA_DIR, DEFAULT_DB_URL, LOGS_DIR, SCREENSHOTS_DIR
+from paths import DATA_DIR, DEFAULT_DB_URL, LOGS_DIR
 import notify
-from renewer import State
 import scheduler as _scheduler_mod
 from scheduler import schedule_account_renewal
 from secrets_at_rest import migrate_plaintext_rows
@@ -455,28 +453,14 @@ def add_library():
             type=form.type.data,
             nyt_url=form.nyt_url.data,
             homepage=form.homepage.data,
-            custom_config=form.custom_config.data,
             default_renewal_hours=form.default_renewal_hours.data,
-            active=form.active.data
+            active=form.active.data,
         )
-        
-        # Store additional configuration in custom_config if provided
-        import json
-        config_data = {}
-        if form.custom_config.data:
-            try:
-                config_data = json.loads(form.custom_config.data)
-            except:
-                config_data = {}
-        
-        library.custom_config = json.dumps(config_data) if config_data else None
-        
         db.session.add(library)
         db.session.commit()
-        
         flash('Library added successfully!', 'success')
         return redirect(url_for('libraries'))
-    
+
     return render_template('library_form.html', form=form, title='Add Library')
 
 @app.route('/libraries/<int:id>/edit', methods=['GET', 'POST'])
@@ -484,23 +468,18 @@ def edit_library(id):
     """Edit existing library configuration"""
     library = LibraryConfig.query.get_or_404(id)
     
-    # Initialize form data properly
     if request.method == 'GET':
-        # Load data from database fields
-        form_data = {
+        form = LibraryForm(data={
             'name': library.name,
             'type': library.type,
             'nyt_url': library.nyt_url or '',
             'homepage': library.homepage,
             'default_renewal_hours': library.default_renewal_hours,
             'active': library.active,
-            'custom_config': library.custom_config or ''
-        }
-        
-        form = LibraryForm(data=form_data)
+        })
     else:
         form = LibraryForm()
-    
+
     if form.validate_on_submit():
         library.name = form.name.data
         library.type = form.type.data
@@ -508,20 +487,7 @@ def edit_library(id):
         library.homepage = form.homepage.data
         library.default_renewal_hours = form.default_renewal_hours.data
         library.active = form.active.data
-        
-        # Store additional configuration in custom_config if provided
-        import json
-        config_data = {}
-        if form.custom_config.data:
-            try:
-                config_data = json.loads(form.custom_config.data)
-            except:
-                config_data = {}
-        
-        library.custom_config = json.dumps(config_data) if config_data else None
-        
         db.session.commit()
-        
         flash('Library updated successfully!', 'success')
         return redirect(url_for('libraries'))
     
@@ -556,38 +522,17 @@ def logs():
 
 @app.route('/api/logs/clear', methods=['POST'])
 def clear_logs():
-    """Clear all renewal logs and ALL screenshot directories"""
+    """Clear all renewal log entries."""
     try:
         deleted_logs = RenewalLog.query.count()
         RenewalLog.query.delete()
         db.session.commit()
-
-        # Sweep any v0.5-era screenshot directories. The HTTP-only renewer
-        # doesn't produce screenshots, so this is purely a one-time legacy
-        # cleanup; new installs will find the dir empty or absent.
-        deleted_dirs = 0
-        if os.path.exists(SCREENSHOTS_DIR):
-            import shutil
-            for item in os.listdir(SCREENSHOTS_DIR):
-                if item.startswith('.'):
-                    continue
-                dir_path = os.path.join(SCREENSHOTS_DIR, item)
-                if os.path.isdir(dir_path):
-                    try:
-                        shutil.rmtree(dir_path)
-                        deleted_dirs += 1
-                    except OSError as e:
-                        logger.warning(f"Failed to delete legacy screenshot dir {item}: {e}")
-
-        logger.info(f"🧹 Cleared {deleted_logs} log entries (+{deleted_dirs} legacy screenshot dirs)")
-
+        logger.info(f"🧹 Cleared {deleted_logs} log entries")
         return jsonify({
             'success': True,
             'message': f'Cleared {deleted_logs} log entries',
             'deleted_logs': deleted_logs,
-            'deleted_directories': deleted_dirs,
         })
-        
     except Exception as e:
         db.session.rollback()
         logger.error(f"Failed to clear logs: {str(e)}")
@@ -665,9 +610,8 @@ def api_logs():
             'duration_seconds': log.duration_seconds,
             'account_id': log.account_id,
             'account_name': account.display_name if account else 'Unknown Account',
-            'screenshot_filename': log.screenshot_filename
         })
-    
+
     return jsonify(log_data)
 
 @app.route('/api/accounts')
@@ -700,35 +644,10 @@ def api_account_logs(id):
         'message': log.message,
         'duration': log.duration_seconds,
         'result_url': log.result_url,
-        'screenshot_filename': log.screenshot_filename
     } for log in logs]
-    
+
     return jsonify(log_data)
 
-@app.route('/api/screenshots/<path:filepath>')
-def serve_screenshot(filepath):
-    """Serve a v0.5-era debug screenshot.
-
-    The HTTP-only renewer doesn't produce screenshots, so this only
-    matters for users with legacy logs that still reference image paths.
-    Kept around so old log entries still link to their images."""
-    try:
-        from flask import send_from_directory
-
-        # Path-traversal guard
-        if '..' in filepath or filepath.startswith('/') or not filepath.endswith('.png'):
-            return jsonify({'error': 'Invalid filepath'}), 400
-
-        full = os.path.join(SCREENSHOTS_DIR, filepath)
-        if not os.path.exists(full):
-            return jsonify({'error': 'Screenshot not found'}), 404
-        return send_from_directory(
-            os.path.dirname(full), os.path.basename(full), mimetype='image/png'
-        )
-        
-    except Exception as e:
-        app.logger.error(f"Error serving screenshot {filepath}: {str(e)}")
-        return jsonify({'error': 'Server error'}), 500
 
 def init_db():
     """Initialize database"""
@@ -799,7 +718,7 @@ def init_db():
         db.create_all()
 
         # One-shot at-rest encryption migration: re-encrypt any plaintext
-        # library_password rows left from <v1.2.0. Idempotent.
+        # library_password rows left from <v1.1.0. Idempotent.
         try:
             migrate_plaintext_rows(db, Account)
         except Exception as e:

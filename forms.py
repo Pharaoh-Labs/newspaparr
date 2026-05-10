@@ -1,7 +1,7 @@
 """WTForms classes for the account and library editors."""
 from flask_wtf import FlaskForm
 from wtforms import (BooleanField, IntegerField, PasswordField, SelectField,
-                     StringField, TextAreaField)
+                     StringField)
 from wtforms.validators import DataRequired, NumberRange
 
 
@@ -53,7 +53,3 @@ class LibraryForm(FlaskForm):
         description='Renewals will run at this interval + 1 minute',
     )
     active = BooleanField('Active', default=True)
-    custom_config = TextAreaField(
-        'Additional Configuration (JSON)',
-        description='Optional: JSON configuration for advanced settings',
-    )

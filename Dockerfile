@@ -10,7 +10,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # touch the browser at all.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl gosu \
-        chromium chromium-driver \
+        chromium \
         xvfb x11vnc \
         # Chromium runtime libs (needed by chromium even when not displayed)
         libnss3 libgbm1 libasound2 libxss1 libxshmfence1 \

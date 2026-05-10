@@ -28,11 +28,6 @@ class Account(db.Model):
     library_type = db.Column(db.String(50), nullable=False)
     library_username = db.Column(db.String(100), nullable=False)
     library_password = db.Column(EncryptedString(500), nullable=False)
-    # Legacy NYT credentials (pre-cookie-bridge). Encrypted at rest, but
-    # the renewal flow doesn't read them — the captured Chrome profile's
-    # cookies are the actual auth path.
-    username = db.Column(db.String(100), nullable=True)
-    password = db.Column(EncryptedString(500), nullable=True)
     newspaper_type = db.Column(db.String(20), nullable=False, default='nyt')
 
     renewal_hours = db.Column(db.Integer, default=24)
@@ -65,7 +60,6 @@ class LibraryConfig(db.Model):
     type = db.Column(db.String(50), nullable=False)
     homepage = db.Column(db.String(500))
     nyt_url = db.Column(db.String(500))           # Direct NYT access URL via EZproxy
-    custom_config = db.Column(db.Text)
     default_renewal_hours = db.Column(db.Integer, default=24)
     active = db.Column(db.Boolean, default=True)
 
@@ -79,4 +73,3 @@ class RenewalLog(db.Model):
     message = db.Column(db.Text)
     duration_seconds = db.Column(db.Integer)
     result_url = db.Column(db.String(500))
-    screenshot_filename = db.Column(db.String(255))  # v0.5-era; renewer.py doesn't write screenshots

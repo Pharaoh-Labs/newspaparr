@@ -98,15 +98,6 @@ Thumbs.db
 *.pid.lock
 *.orig
 
-# CapSolver
-capsolver_config.json
-
-# Chrome/Selenium
-chromedriver*
-*.crdownload
-selenium-debug.log
-geckodriver.log
-
 # Test artifacts
 test_results/
 test_output/

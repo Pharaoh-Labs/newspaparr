@@ -55,15 +55,6 @@
                 </div>
             </div>
 
-            <details class="border-t border-gray-200 dark:border-gray-700 pt-6">
-                <summary class="text-sm font-semibold text-gray-700 dark:text-gray-300 cursor-pointer">Advanced</summary>
-                <div class="mt-4">
-                    {{ form.custom_config.label(class="label") }}
-                    {{ form.custom_config(class="input font-mono text-xs", rows="4", placeholder='{"key": "value"}') }}
-                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Optional JSON for adapter-specific tuning.</p>
-                </div>
-            </details>
-
             <div class="flex items-center justify-end gap-2 pt-2">
                 <a href="{{ url_for('libraries') }}" class="btn btn-secondary">Cancel</a>
                 <button type="submit" class="btn btn-primary">{% if library %}Save{% else %}Create{% endif %}</button>

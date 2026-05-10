@@ -1,388 +1,80 @@
-# Troubleshooting Guide
+# Troubleshooting
 
-This guide covers common issues and solutions for Newspaparr.
+Common problems and how to fix them. For an overview of how a renewal works, see the README.
 
-## Table of Contents
-- [Installation Issues](#installation-issues)
-- [Authentication Problems](#authentication-problems)
-- [CAPTCHA Issues](#captcha-issues)
-- [Renewal Failures](#renewal-failures)
-- [Scheduling Problems](#scheduling-problems)
-- [Performance Issues](#performance-issues)
-- [Docker Issues](#docker-issues)
-- [Debug Tools](#debug-tools)
+## Renewal failures
 
-## Installation Issues
+Every renewal attempt is recorded in the **Activity** tab with a final state. The five states and what they mean:
 
-### Port Already in Use
+| State | What happened | What to do |
+|---|---|---|
+| `RENEWED` | Pass redeemed; expiration parsed from the response | Nothing — this is success |
+| `NO_SESSION` | No NYT cookies on file for this account | Click the key icon and run the capture flow |
+| `SESSION_EXPIRED` | Cookies were sent but NYT rejected them (typically ~30 days old) | Re-capture the session |
+| `LIBRARY_AUTH_FAILED` | Library card / PIN was rejected by EZproxy | Check the card number and PIN; try logging in on the library website directly |
+| `NETWORK_ERROR` | Couldn't reach the library or NYT | Library server may be down; check DNS / firewall; retry in a few minutes |
+| `UNEXPECTED` | Reached an unrecognized end state | Open the Activity row to see the final URL and message; file an issue with that detail |
 
-**Error**: `bind: address already in use`
+## Capture flow won't work
 
-**Solution**:
-```bash
-# Check what's using port 1851
-sudo lsof -i :1851
+The one-time NYT capture opens an embedded Chromium that streams to your dashboard via noVNC on port 6100.
 
-# Either stop the conflicting service or change Newspaparr's port:
-# Edit docker-compose.yml
-ports:
-  - "8080:1851"  # Change 8080 to your preferred port
-```
+- **Black screen / "connecting…" forever** — port 6100 isn't reachable. If you're behind a reverse proxy, make sure WebSocket upgrades are forwarded to `:6100` as well as the dashboard on `:1851`.
+- **Capture window opens but Chromium crashes** — usually a memory issue inside the container. Bump the container memory limit, or restart the container and retry.
+- **"Save & close" does nothing** — make sure you're actually logged into NYT *and* on a page under `nytimes.com` before clicking save. The capture only stores cookies for that domain.
+- **Subsequent renewals all return `SESSION_EXPIRED`** — sessions naturally age out (~30 days). Just re-capture.
 
-### Permission Denied Errors
+## Library authentication
 
-**Error**: `Permission denied` when accessing data files
+`LIBRARY_AUTH_FAILED` is by far the most common renewal failure. Things to check:
 
-**Solution**:
-```bash
-# Fix ownership
-sudo chown -R $(id -u):$(id -g) ./data
+1. **PIN format** — some libraries use the last 4 digits of your phone number, your birthdate (MMDDYY or MMDDYYYY), or a custom PIN you set. Try the same value that works on the library's own website.
+2. **EZproxy URL is current** — libraries occasionally change the redemption URL. Compare the URL configured under *Libraries* with the actual link your library shows for "NYT digital pass" today.
+3. **Card not yet activated** — newly issued cards sometimes need 24h before EZproxy recognizes them.
 
-# Fix permissions
-chmod -R 755 ./data
-
-# Update docker-compose.yml with your user ID
-environment:
-  - PUID=$(id -u)
-  - PGID=$(id -g)
-```
-
-### Docker Build Fails
-
-**Error**: Build errors during `docker-compose build`
+## Scheduling
 
-**Solution**:
-```bash
-# Clean rebuild
-docker-compose down
-docker system prune -f
-docker-compose build --no-cache
-docker-compose up -d
-```
-
-## Authentication Problems
+- **Renewals not running on time** — check that `TZ` is set in `docker-compose.yml`. Without it the scheduler defaults to UTC and renewals can appear hours off.
+- **Renewals run every 24h regardless of expiration** — the scheduler reschedules around the next pass expiration parsed from the renewal response. If parsing fails it falls back to a 24h interval; the activity log will show a generic interval rather than a parsed date.
 
-### Library Login Failed
+## Docker
 
-**Common Causes & Solutions**:
+- **Port 1851 in use** — change the host-side port in `docker-compose.yml` (e.g. `"8080:1851"`).
+- **Permission errors on `data/`** — match `PUID` / `PGID` in compose to the owner of the bind-mounted directory.
+- **Container restart loop** — `docker compose logs --tail=100 newspaparr` to see why. The most common causes are a malformed `APPRISE_URLS` value or a corrupted SQLite file (rare; restore from a backup of `data/`).
 
-1. **Incorrect Credentials**
-   - Double-check library card number
-   - Verify PIN/password
-   - Some libraries use birthdate as PIN (MMDDYYYY format)
+## Debug logging
 
-2. **Library Not Supported**
-   - Verify library is OCLC-affiliated
-   - Check if library offers digital newspaper passes
-   - Try manual login on library website first
-
-3. **Session Expired**
-   - Clear browser cookies
-   - Restart Newspaparr container
-   ```bash
-   docker-compose restart
-   ```
-
-4. **Library Website Changed**
-   - Check if library website layout changed
-   - Report issue on GitHub for adapter update
-
-### NYT/WSJ Login Failed
-
-**Common Causes & Solutions**:
-
-1. **Account Already Has Subscription**
-   - Check account status on newspaper website
-   - Cancel any active subscriptions
-   - Wait 24 hours and retry
-
-2. **Too Many Devices**
-   - Log out of newspaper on other devices
-   - Check device limit (usually 4-5 devices)
-   - Remove unused devices from account settings
-
-3. **Wrong Password Format**
-   - Some special characters may cause issues
-   - Try simpler password temporarily
-   - Ensure no leading/trailing spaces
-
-4. **Account Locked**
-   - Too many failed attempts
-   - Reset password on newspaper website
-   - Wait 30 minutes before retrying
-
-## CAPTCHA Issues
-
-### CAPTCHA Not Solving
-
-**Check CapSolver Setup**:
-
-1. **API Key Invalid**
-   ```bash
-   # Verify API key in docker-compose.yml
-   grep CAPSOLVER_API_KEY docker-compose.yml
-   ```
-
-2. **No Credit Balance**
-   - Log into capsolver.com
-   - Check balance (need ~$0.003 per CAPTCHA)
-   - Add credit if needed
-
-3. **Proxy Not Accessible**
-   ```bash
-   # Test external connectivity
-   telnet YOUR_EXTERNAL_IP 3333
-   
-   # Check port forwarding on router
-   # Port 3333 must be forwarded to Docker host
-   ```
-
-4. **Wrong Proxy Configuration**
-   ```yaml
-   # Correct format in docker-compose.yml
-   environment:
-     - PROXY_HOST=your-external-ip-or-domain
-     - SOCKS5_PROXY_PORT=3333
-   ```
-
-### CAPTCHA Loop
-
-**Issue**: Keeps getting CAPTCHA after solving
-
-**Solutions**:
-1. **IP Banned**
-   - Wait 24 hours
-   - Use different IP (VPN/proxy)
-   - Reduce renewal frequency
-
-2. **User-Agent Mismatch**
-   - Ensure browser and CapSolver use same UA
-   - Don't change CAPSOLVER_USER_AGENT unless necessary
-
-## Renewal Failures
-
-### Success Not Detected
-
-**Issue**: Renewal works but shows as failed
-
-**Solutions**:
-1. Enable debug mode to capture success page
-2. Check logs for actual outcome
-3. Report unrecognized success message
-
-### Timeout Errors
-
-**Issue**: "Renewal timed out after 300 seconds"
-
-**Solutions**:
-```yaml
-# Increase timeout in environment
-environment:
-  - RENEWAL_TIMEOUT=600  # 10 minutes
-```
-
-### Element Not Found
-
-**Issue**: "Could not find login button/field"
-
-**Solutions**:
-1. Website layout may have changed
-2. Enable screenshots to see current page
-3. Report issue with screenshot
-
-## Scheduling Problems
-
-### Renewals Not Running
-
-**Check Scheduler Status**:
-```bash
-# View scheduled jobs
-docker-compose exec newspaparr python -c "
-from app import scheduler
-for job in scheduler.get_jobs():
-    print(f'{job.id}: {job.next_run_time}')
-"
-```
-
-**Common Fixes**:
-1. Restart container
-2. Check timezone setting
-3. Verify account is enabled
-4. Check logs for errors
-
-### Wrong Schedule Time
-
-**Issue**: Renewals run at unexpected times
-
-**Solution**:
-```yaml
-# Set correct timezone
-environment:
-  - TZ=America/New_York  # Your timezone
-```
-
-Find your timezone: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
-
-## Performance Issues
-
-### High Memory Usage
-
-**Solutions**:
-1. **Limit Chrome memory**:
-   ```bash
-   # Add to docker-compose.yml
-   deploy:
-     resources:
-       limits:
-         memory: 2G
-   ```
-
-### Slow Renewals
-
-**Solutions**:
-1. **Adjust interaction speed**:
-   ```yaml
-   environment:
-     - RENEWAL_SPEED=fast  # Options: fast, normal, slow
-   ```
-
-2. **Disable screenshots** (if enabled):
-   ```yaml
-   environment:
-     - DEBUG_SCREENSHOTS=false
-   ```
-
-## Docker Issues
-
-### Container Keeps Restarting
-
-**Check Logs**:
-```bash
-docker-compose logs --tail=50 newspaparr
-```
-
-**Common Causes**:
-1. Port conflict
-2. Invalid environment variables
-3. Corrupted database
-
-**Fix**:
-```bash
-# Full reset
-docker-compose down
-rm -rf data/newspaparr.db
-docker-compose up -d
-```
-
-### Can't Access Web Interface
-
-**Troubleshooting Steps**:
-```bash
-# Check if container is running
-docker ps | grep newspaparr
-
-# Check container logs
-docker-compose logs newspaparr
-
-# Test connectivity
-curl http://localhost:1851/health
-
-# Check firewall
-sudo ufw status
-```
-
-## Debug Tools
-
-### Enable Debug Mode
+Set `DEBUG_MODE=true` in your compose environment for verbose logging:
 
 ```yaml
-# Add to docker-compose.yml
 environment:
-  - LOG_LEVEL=DEBUG
-  - DEBUG_SCREENSHOTS=true
+  - DEBUG_MODE=true
 ```
 
-### View Screenshots
+Logs go to stdout (`docker compose logs -f newspaparr`) and to `data/logs/`.
 
-Screenshots saved to `./data/screenshots/` when debug enabled.
+## SECRET_KEY and at-rest encryption
 
-### Export Logs
+Library-card passwords are encrypted with a Fernet key derived from `SECRET_KEY`. If `data/secret_key` is lost or `SECRET_KEY` is rotated, every stored library password becomes unreadable — you'll need to re-enter them. Include `data/secret_key` in any backup of `data/`.
 
-```bash
-# Save logs to file
-docker-compose logs > newspaparr-logs.txt
-
-# Follow logs in real-time
-docker-compose logs -f --tail=100
-```
-
-### Database Inspection
+## Inspecting the database
 
 ```bash
-# Backup database
-cp data/newspaparr.db data/newspaparr-backup.db
-
-# View accounts
-docker-compose exec newspaparr python -c "
-from app import db, Account
-for acc in Account.query.all():
-    print(f'{acc.name}: {acc.status}')
+docker compose exec newspaparr python -c "
+from app import app
+from models import Account
+with app.app_context():
+    for a in Account.query.all():
+        print(f'{a.id}: {a.name} ({a.library.name if a.library else \"-\"})')
 "
 ```
 
-### Test Individual Components
+## Getting help
 
-```bash
-# Test library adapter
-docker-compose exec newspaparr python -c "
-from library_adapters import LibraryAdapterFactory
-adapter = LibraryAdapterFactory.create('oclc')
-print(adapter.get_library_name())
-"
+If none of the above fixes it, open an issue at <https://github.com/Pharaoh-Labs/newspaparr/issues> with:
 
-# Test CAPTCHA solver
-docker-compose exec newspaparr python -c "
-from captcha_solver import CaptchaSolver
-solver = CaptchaSolver()
-print(f'CapSolver configured: {solver.api_key is not None}')
-"
-```
-
-## Getting Help
-
-If these solutions don't resolve your issue:
-
-1. **Check existing issues**: [GitHub Issues](https://github.com/yourusername/newspaparr/issues)
-2. **Enable debug mode** and collect logs
-3. **Create detailed issue** with:
-   - Error messages
-   - Docker logs
-   - Configuration (without secrets)
-   - Steps to reproduce
-   - Screenshots if relevant
-
-## Common Error Messages
-
-### "DataDome Protected"
-- **Meaning**: Site detected automation
-- **Solution**: Ensure CapSolver is configured
-
-### "Invalid credentials"
-- **Meaning**: Wrong username/password
-- **Solution**: Verify credentials on website
-
-### "No library adapter found"
-- **Meaning**: Library type not supported
-- **Solution**: Check supported libraries list
-
-### "Chrome version mismatch"
-- **Meaning**: ChromeDriver incompatible
-- **Solution**: Rebuild container with `--no-cache`
-
-### "Connection refused"
-- **Meaning**: Service not accessible
-- **Solution**: Check network and firewall settings
-
----
-
-For additional help, visit our [GitHub Discussions](https://github.com/yourusername/newspaparr/discussions).
+- The Activity-row final state and message
+- Relevant lines from `docker compose logs newspaparr`
+- The version (visible in the dashboard footer)
+- Whether you're behind a reverse proxy

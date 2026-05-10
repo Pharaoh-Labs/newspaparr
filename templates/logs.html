@@ -90,7 +90,7 @@
 async function refreshLogs() { location.reload(); }
 
 async function clearAllLogs() {
-    if (!confirm('Delete all renewal log entries and screenshots? This cannot be undone.')) return;
+    if (!confirm('Delete all renewal log entries? This cannot be undone.')) return;
     const r = await fetch('/api/logs/clear', { method: 'POST' });
     if (r.ok) location.reload();
 }
@@ -107,16 +107,12 @@ async function showLogDetail(id) {
         ? '<span class="pill bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">Success</span>'
         : '<span class="pill bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200">Failed</span>';
 
-    let html = `
+    const html = `
       <div class="flex items-center gap-3">${statusPill}<span class="text-gray-500 dark:text-gray-400">${ts} · ${dur}</span></div>
       <div><div class="text-xs uppercase text-gray-500 dark:text-gray-400 mb-1">Account</div><div>${log.account_name || 'Unknown'}</div></div>
       <div><div class="text-xs uppercase text-gray-500 dark:text-gray-400 mb-1">Message</div>
         <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md p-3 whitespace-pre-wrap text-xs font-mono">${log.message || '—'}</div></div>
     `;
-    if (log.screenshot_filename) {
-        html += `<div><div class="text-xs uppercase text-gray-500 dark:text-gray-400 mb-1">Final screenshot</div>
-          <img src="/api/screenshots/${log.screenshot_filename}" alt="screenshot" class="w-full rounded-md border border-gray-200 dark:border-gray-700 cursor-zoom-in" onclick="window.open(this.src)"></div>`;
-    }
 
     document.getElementById('log-detail-content').innerHTML = html;
     document.getElementById('log-detail-modal').classList.remove('hidden');

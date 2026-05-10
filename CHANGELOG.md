@@ -5,6 +5,43 @@ All notable changes to Newspaparr will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-05-09
+
+### Added
+- One-time NYT session capture via embedded Chromium + noVNC, replacing per-renewal browser automation
+- HTTP-only renewer (`renewer.py`) — full library auth → EZproxy → NYT redemption flow over `httpx`, ~1s per account
+- Library-card password encryption at rest using Fernet with a key derived from `SECRET_KEY` (PBKDF2-HMAC-SHA256)
+- Auto-generated `SECRET_KEY` persisted to `data/secret_key` (mode 0600) on first boot
+- Apprise-based notifications — fires on renewal failure and on recovery from a previous failure (~80 services supported)
+- Inline-SVG icon helper (`icons.py`) — drops the Font Awesome CDN dependency
+- Built Tailwind bundle in `static/css/app.css` (no CDN at runtime); rebuild via `scripts/build-css.sh`
+- Smoke tests for at-rest encryption and capture-session lifecycle
+
+### Changed
+- App now runs on Python 3.13
+- `app.py` split into focused modules: `models.py`, `forms.py`, `scheduler.py`, `helpers.py`, `extensions.py`, `paths.py`
+- `app.py` is now Flask routes only
+- Activity log now records the full final-page URL for every attempt
+
+### Removed
+- Selenium, undetected-chromedriver, and the entire library-adapter / state-detector framework
+- CapSolver integration and SOCKS5 proxy support — no CAPTCHA solving needed for the HTTP flow
+- WSJ support (NYT-only going forward; library WSJ access has been spotty for years)
+- Dead `error_handling.py` module
+- Deprecated `libgconf-2-4` from the Docker image
+
+### Fixed
+- Capture-session subprocesses leaked across gunicorn worker reloads
+- `DEBUG_MODE` / `FLASK_DEBUG` documentation mismatch in compose example
+- Empty-password UX on the edit-account form (clarified that leaving blank preserves the existing password)
+- `datetime.utcnow()` deprecation warnings under Python 3.13
+
+## [1.0.0] - 2026-05-09
+
+### Changed
+- Foundational redesign: cookie-bridge architecture replaces Selenium-driven renewals
+- This release was rolled directly into the 1.1.0 cut; see the 1.1.0 entry for the full set of changes that shipped publicly
+
 ## [0.6.0] - 2025-10-08
 
 ### Fixed

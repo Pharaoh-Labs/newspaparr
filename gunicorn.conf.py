@@ -13,7 +13,7 @@ workers = 1  # Reduced to avoid permission issues
 worker_class = "gthread"  # Use gthread for better request handling
 worker_connections = 1000
 threads = 2  # Allow multiple threads per worker
-timeout = 600  # 10 minutes to allow for CAPTCHA solving
+timeout = 600  # 10 minutes to allow for the interactive noVNC capture flow
 keepalive = 2
 
 # Restart workers after this many requests, to help limit memory usage

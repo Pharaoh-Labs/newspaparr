@@ -1,205 +1,79 @@
 # Contributing to Newspaparr
 
-Thank you for your interest in contributing to Newspaparr! We welcome contributions of all kinds - bug fixes, new features, documentation improvements, and more.
+PRs and issues welcome. This file is short on purpose — read the README for what the project does, then come back for the workflow.
 
-## Code of Conduct
+## Reporting issues
 
-By participating in this project, you agree to be respectful and constructive in all interactions. We want to maintain a welcoming environment for everyone.
+Before opening one, check if it's already filed. When you do open one, include:
 
-## How to Contribute
+- The Activity-row final state from the dashboard (`RENEWED`, `LIBRARY_AUTH_FAILED`, etc.)
+- Relevant `docker compose logs newspaparr` output
+- The version (footer of the dashboard) and how you're running it (Docker, behind a reverse proxy, etc.)
+- Steps to reproduce, if applicable
 
-### Reporting Issues
+For NYT-side flow regressions (NYT changes their HTML and the renewal stops detecting success), include the final URL and a snippet of the response if you can capture it.
 
-Before creating an issue, please:
-- Check existing issues to avoid duplicates
-- Use the issue templates when available
-- Include as much detail as possible:
-  - Steps to reproduce
-  - Expected vs actual behavior
-  - Error messages and logs
-  - Your environment (OS, Docker version, browser)
-  - Screenshots if applicable
+## Submitting code
 
-### Suggesting Features
-
-- Open a discussion first for major features
-- Explain the use case and benefits
-- Consider implementation complexity
-- Be open to feedback and alternatives
-
-### Submitting Code
-
-1. **Fork the repository**
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/newspaparr.git
-   cd newspaparr
-   ```
-
-2. **Create a feature branch**
-   ```bash
-   git checkout -b feature/amazing-feature
-   # or
-   git checkout -b fix/bug-description
-   ```
-
-3. **Make your changes**
-   - Follow existing code style and patterns
-   - Add comments for complex logic
-   - Update documentation if needed
-   - Keep changes focused and atomic
-
-4. **Test thoroughly**
-   ```bash
-   # Build and run with Docker
-   docker-compose build
-   docker-compose up
-   
-   # Test your changes:
-   # - Web interface at http://localhost:1851
-   # - Library connections
-   # - Renewal functionality
-   # - Error handling
-   ```
-
-5. **Commit your changes**
-   ```bash
-   git commit -m "feat: add amazing feature"
-   # or
-   git commit -m "fix: resolve specific issue"
-   ```
-   
-   Follow conventional commits:
-   - `feat:` for new features
-   - `fix:` for bug fixes
-   - `docs:` for documentation
-   - `style:` for formatting changes
-   - `refactor:` for code restructuring
-   - `test:` for test additions
-   - `chore:` for maintenance tasks
-
-6. **Push and create PR**
-   ```bash
-   git push origin feature/amazing-feature
-   ```
-   Then open a Pull Request with:
-   - Clear description of changes
-   - Link to related issues
-   - Screenshots if UI changes
-   - Testing notes
-
-## Development Environment
-
-### Prerequisites
-- Docker and Docker Compose
-- Git
-- Text editor or IDE
-- Web browser for testing
-
-### Local Development Setup
-
-1. **Clone and configure**
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/newspaparr.git
-   cd newspaparr
-   
-   # Copy example configuration
-   cp docker-compose.example.yml docker-compose.yml
-   # Edit docker-compose.yml with your settings
-   ```
-
-2. **Build and run**
-   ```bash
-   docker-compose build --no-cache
-   docker-compose up
-   ```
-
-3. **Access the application**
-   - Web UI: http://localhost:1851
-   - Logs: `docker-compose logs -f`
-
-### Project Structure
-```
-newspaparr/
-├── app.py                 # Main Flask application
-├── renewal_engine.py      # Core renewal logic
-├── library_adapters.py    # Library-specific implementations
-├── state_detector.py      # Success/failure detection
-├── captcha_solver.py      # CAPTCHA solving integration
-├── templates/            # HTML templates
-├── static/              # CSS, JS, images
-├── data/               # Runtime data (gitignored)
-├── logs/               # Application logs (gitignored)
-└── docker/             # Docker configuration
+```bash
+git clone https://github.com/YOUR_USERNAME/newspaparr.git
+cd newspaparr
+git checkout -b fix/short-description
+# …make changes…
+git commit -m "fix: short description"
+git push origin fix/short-description
+# …open a PR against main…
 ```
 
-### Key Technologies
-- **Backend**: Python, Flask, SQLAlchemy
-- **Frontend**: HTML, Tailwind CSS, Alpine.js
-- **Automation**: Selenium, undetected-chromedriver
-- **Scheduling**: APScheduler
-- **Database**: SQLite
-- **Deployment**: Docker, Docker Compose
+Conventional-commit-ish prefixes (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`) are appreciated but not enforced.
 
-## Testing Guidelines
+Keep PRs focused. One logical change per PR is much easier to review than a grab bag.
 
-### Manual Testing Checklist
-- [ ] Web interface loads correctly
-- [ ] Can add/edit/delete accounts
-- [ ] Manual renewal works
-- [ ] Scheduled renewals trigger
-- [ ] Error handling works
-- [ ] Logs are generated
-- [ ] Screenshots captured (debug mode)
+## Local development
 
-### Testing Different Scenarios
-- Test with valid credentials
-- Test with invalid credentials
-- Test CAPTCHA handling
-- Test network failures
-- Test library variations
+```bash
+./dev.sh
+```
 
-## Code Style Guidelines
+Creates a `.venv` on first run and starts gunicorn with `--reload` on `:1851`. Needs Python 3.13.
 
-### Python
-- Follow PEP 8 conventions
-- Use meaningful variable names
-- Add docstrings for functions
-- Handle exceptions properly
-- Use type hints where helpful
+If you're editing Tailwind classes:
 
-### HTML/JavaScript
-- Use semantic HTML
-- Follow existing Tailwind patterns
-- Keep JavaScript minimal
-- Ensure accessibility
+```bash
+./scripts/build-css.sh
+```
 
-### Commits
-- One logical change per commit
-- Clear, descriptive messages
-- Reference issues when applicable
-- Keep commit history clean
+Rebuilds `static/css/app.css`. The script auto-fetches the standalone tailwindcss binary on first run (no npm).
 
-## Documentation
+## Testing
 
-When adding features or making changes:
-- Update README.md if needed
-- Add inline code comments
-- Update CHANGELOG.md
-- Document new environment variables
-- Include examples where helpful
+```bash
+pip install -r requirements-dev.txt
+pytest tests/ -v
+```
 
-## Getting Help
+The full suite is intentionally small — smoke tests around the at-rest encryption, capture-session lifecycle, and a handful of route checks. Add tests when you fix a bug or add a non-trivial code path. End-to-end NYT renewal tests require a real library card and aren't part of CI.
 
-- **Questions**: Open a GitHub Discussion
-- **Bugs**: Create an Issue
-- **Security**: Email security concerns privately
-- **Chat**: Join community discussions
+## Architecture
 
-## Recognition
+See the **Architecture (code map)** section of the README. The short version:
 
-Contributors will be:
-- Listed in CHANGELOG.md
-- Mentioned in release notes
-- Added to contributors list
+- `app.py` is Flask routes only
+- `renewer.py` is the HTTP-only renewal flow (no browser at renewal time)
+- `capture_session.py` runs Xvfb + Chromium + x11vnc + websockify for the one-time login capture
+- `cookie_jar.py` decrypts Chromium's cookie store
+- `secrets_at_rest.py` Fernet-encrypts library passwords with a `SECRET_KEY`-derived key
+- `scheduler.py` / `helpers.py` wrap APScheduler
+- `models.py` / `forms.py` / `extensions.py` are SQLAlchemy / WTForms
 
-Thank you for helping make Newspaparr better!
+The project deliberately avoids Selenium, headless browsers, and CAPTCHA solvers at renewal time — the cookie-bridge approach is the design choice. PRs that re-introduce automation frameworks for renewals will likely be declined unless they're the only viable path for a specific failure mode.
+
+## Style
+
+- Python 3.13, PEP 8, type hints where they help
+- Keep diffs minimal; don't reformat surrounding code in a feature PR
+- No new dependencies without a clear reason — the runtime image is small on purpose
+
+## Code of conduct
+
+Be respectful. Assume good faith. We're a small project; one toxic interaction is one too many.

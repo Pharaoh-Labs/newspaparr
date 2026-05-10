@@ -36,7 +36,7 @@ The hard part is the *initial* NYT login — NYT actively detects automation. Ne
 
 ```bash
 # Grab the example compose file
-curl -fsSL https://raw.githubusercontent.com/egyptiangio/newspaparr/main/docker-compose.example.yml -o docker-compose.yml
+curl -fsSL https://raw.githubusercontent.com/Pharaoh-Labs/newspaparr/main/docker-compose.example.yml -o docker-compose.yml
 
 # Start
 docker-compose up -d
@@ -59,7 +59,7 @@ All configuration is environment variables in `docker-compose.yml`. Everything i
 ```yaml
 services:
   newspaparr:
-    image: ghcr.io/egyptiangio/newspaparr:latest
+    image: ghcr.io/pharaoh-labs/newspaparr:latest
     ports:
       - "1851:1851"   # Web dashboard
       - "6100:6100"   # noVNC bridge (only used during the capture flow)
@@ -104,16 +104,22 @@ services:
 ## Architecture (code map)
 
 ```
-app.py             Flask routes, scheduler, models, forms (~1100 lines)
-renewer.py         The HTTP-only renewal flow (~240 lines, replaces the old selenium pipeline)
-cookie_jar.py      Linux Chrome v10 cookie decrypt (PBKDF2 'peanuts'/'saltysalt')
-capture_session.py Xvfb + Chromium + x11vnc + websockify lifecycle for the in-dashboard capture flow
-notify.py          Apprise wrapper — fires on failure, on recovery
-icons.py           Inline-SVG Heroicons helper (drops the Font Awesome CDN)
-paths.py           Single source of truth for filesystem paths
-templates/         Jinja templates, Tailwind classes
-static/css/app.css Built Tailwind bundle (no CDN at runtime)
-scripts/build-css.sh   Re-build static/css/app.css after editing classes
+app.py              Flask routes only (~850 lines)
+models.py           SQLAlchemy models (Library, Account, RenewalLog)
+forms.py            WTForms classes
+extensions.py       SQLAlchemy + CSRF singletons (avoids circular imports)
+scheduler.py        APScheduler setup, manual triggers, reschedule logic
+helpers.py          Renewal helpers (run, schedule, log) shared by routes + scheduler
+renewer.py          The HTTP-only renewal flow (~240 lines, replaces the old selenium pipeline)
+cookie_jar.py       Linux Chrome v10 cookie decrypt (PBKDF2 'peanuts'/'saltysalt')
+capture_session.py  Xvfb + Chromium + x11vnc + websockify lifecycle for the in-dashboard capture flow
+secrets_at_rest.py  Fernet encryption of library passwords using a SECRET_KEY-derived key
+notify.py           Apprise wrapper — fires on failure, on recovery
+icons.py            Inline-SVG Heroicons helper (drops the Font Awesome CDN)
+paths.py            Single source of truth for filesystem paths
+templates/          Jinja templates, Tailwind classes
+static/css/app.css  Built Tailwind bundle (no CDN at runtime)
+scripts/build-css.sh    Re-build static/css/app.css after editing classes
 ```
 
 ## Activity & troubleshooting
@@ -134,7 +140,7 @@ Common failures:
 ## Development
 
 ```bash
-git clone https://github.com/egyptiangio/newspaparr.git
+git clone https://github.com/Pharaoh-Labs/newspaparr.git
 cd newspaparr
 ./dev.sh           # creates .venv on first run, then gunicorn --reload on :1851
 ```

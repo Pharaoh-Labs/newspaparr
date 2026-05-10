@@ -1,6 +1,6 @@
 services:
   newspaparr:
-    image: ghcr.io/egyptiangio/newspaparr:latest
+    image: ghcr.io/pharaoh-labs/newspaparr:latest
     container_name: newspaparr
     ports:
       - "1851:1851"   # Web interface

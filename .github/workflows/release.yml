@@ -65,7 +65,7 @@ jobs:
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: ghcr.io/egyptiangio/newspaparr
+        images: ghcr.io/pharaoh-labs/newspaparr
         tags: |
           type=ref,event=branch
           type=ref,event=pr
@@ -120,9 +120,9 @@ jobs:
           
           ### Docker
           ```bash
-          docker run -d -p 1851:1851 -v ./data:/app/data ghcr.io/egyptiangio/newspaparr:${{ github.ref_name }}
+          docker run -d -p 1851:1851 -v ./data:/app/data ghcr.io/pharaoh-labs/newspaparr:${{ github.ref_name }}
           ```
-          
-          See the [README](https://github.com/egyptiangio/newspaparr) for full documentation.
+
+          See the [README](https://github.com/Pharaoh-Labs/newspaparr) for full documentation.
         draft: false
         prerelease: false
