@@ -7,13 +7,7 @@ import atexit
 import logging
 import os
 import secrets
-from datetime import datetime, timedelta, timezone
-
-
-def utcnow() -> datetime:
-    """Naive UTC datetime, matching the DB column type. Replaces the
-    deprecated `utcnow()` which emits DeprecationWarning on 3.12+."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+from datetime import datetime, timedelta
 
 import pytz
 from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
@@ -21,11 +15,12 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from extensions import db, migrate
 from forms import AccountForm, EditAccountForm, LibraryForm
+from helpers import execute_renewal, utcnow
 from icons import icon
 from models import Account, LibraryConfig, RenewalLog
 from paths import DATA_DIR, DEFAULT_DB_URL, LOGS_DIR, SCREENSHOTS_DIR
 import notify
-from renewer import State, renew
+from renewer import State
 import scheduler as _scheduler_mod
 from scheduler import schedule_account_renewal
 from secrets_at_rest import migrate_plaintext_rows
@@ -381,72 +376,12 @@ def delete_account(id):
     flash('Account deleted successfully!', 'success')
     return redirect(url_for('accounts'))
 
-def _execute_renewal(account):
-    """Run a renewal, write the RenewalLog row, schedule the next attempt,
-    fire notifications on state transitions.
-
-    Returns the renewer.RenewalResult."""
-    library = LibraryConfig.query.filter_by(type=account.library_type).first()
-    if library is None or not library.nyt_url:
-        msg = "No library configuration / NYT URL for this account."
-        _record_renewal_log(account, success=False, message=msg, duration_ms=0)
-        notify.notify_renewal_failed(account.name, msg)
-        return None
-
-    # Look up previous attempt so we can detect transitions (failed→ok, ok→failed).
-    previous = (RenewalLog.query.filter_by(account_id=account.id)
-                .order_by(RenewalLog.id.desc()).first())
-    was_failing = previous is not None and not previous.success
-
-    result = renew(
-        library_url=library.nyt_url,
-        library_user=account.library_username,
-        library_pass=account.library_password,
-        account_id=account.id,
-    )
-
-    _record_renewal_log(account, success=result.success, message=result.message,
-                        duration_ms=result.duration_ms, result_url=result.final_url)
-
-    account.last_renewal = utcnow()
-    if result.success and result.expiration:
-        account.next_renewal = result.expiration + timedelta(minutes=1)
-    else:
-        # Fall back to library default + 1 minute (covers both
-        # success-without-expiration and any failure — failed renewals retry
-        # on the same cadence).
-        account.next_renewal = (utcnow()
-                                + timedelta(hours=account.effective_renewal_interval, minutes=1))
-    db.session.commit()
-    schedule_account_renewal(account)
-
-    # Notify only on transitions, not on every attempt — avoids spamming.
-    if not result.success:
-        notify.notify_renewal_failed(account.name, result.message)
-    elif was_failing:
-        notify.notify_renewal_recovered(account.name)
-
-    return result
-
-
-def _record_renewal_log(account, *, success, message, duration_ms, result_url=None):
-    log = RenewalLog(
-        account_id=account.id,
-        success=success,
-        message=message,
-        duration_seconds=int((duration_ms or 0) / 1000),
-        result_url=result_url,
-    )
-    db.session.add(log)
-    db.session.commit()
-
-
 @app.route('/accounts/<int:id>/renew', methods=['POST'])
 def manual_renewal(id):
     """Manually trigger renewal for an account."""
     account = Account.query.get_or_404(id)
     try:
-        result = _execute_renewal(account)
+        result = execute_renewal(account)
         if result is None:
             flash(f"Renewal failed for {account.name} — library config missing.", "error")
         elif result.success:
@@ -880,7 +815,7 @@ def create_app():
         # Bind the scheduler module to this app + the renewal callback.
         # Done after init_db() so the model layer is ready, before any
         # schedule_account_renewal() call.
-        _scheduler_mod.init(app, _execute_renewal)
+        _scheduler_mod.init(app, execute_renewal)
 
         with app.app_context():
             try:
