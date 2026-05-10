@@ -16,8 +16,6 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 import pytz
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.interval import IntervalTrigger
 from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -28,6 +26,8 @@ from models import Account, LibraryConfig, RenewalLog
 from paths import DATA_DIR, DEFAULT_DB_URL, LOGS_DIR, SCREENSHOTS_DIR
 import notify
 from renewer import State, renew
+import scheduler as _scheduler_mod
+from scheduler import schedule_account_renewal
 from secrets_at_rest import migrate_plaintext_rows
 
 __version__ = '1.1.0'
@@ -192,19 +192,9 @@ else:
 from capture_session import CaptureSessionManager as _CSM
 _CSM()
 
-# Initialize scheduler (delayed to avoid app context issues)
-scheduler = None
-
-def init_scheduler():
-    global scheduler
-    if scheduler is None:
-        scheduler = BackgroundScheduler()
-        scheduler.start()
-        atexit.register(lambda: scheduler and scheduler.shutdown())
-        return True
-    return False
-
-# Models + forms live in models.py and forms.py and are imported above.
+# Models, forms, and the scheduler live in their own modules and are
+# imported above. The scheduler is bound to the app + the renewal
+# callback inside create_app() once the model layer is ready.
 
 # Routes
 @app.route('/')
@@ -676,12 +666,10 @@ def clear_logs():
 def api_status():
     """API endpoint for system status"""
     accounts = Account.query.all()
-    active_jobs = len(scheduler.get_jobs()) if scheduler else 0
-
     status = {
         'total_accounts': len(accounts),
         'active_accounts': len([a for a in accounts if a.active]),
-        'scheduled_jobs': active_jobs,
+        'scheduled_jobs': _scheduler_mod.job_count(),
         'system_status': 'running',
         'last_check': utcnow().isoformat()
     }
@@ -807,85 +795,6 @@ def serve_screenshot(filepath):
         app.logger.error(f"Error serving screenshot {filepath}: {str(e)}")
         return jsonify({'error': 'Server error'}), 500
 
-# Utility functions
-def schedule_account_renewal(account):
-    """Schedule renewal job for an account"""
-    if not account.active:
-        return
-    
-    # Initialize scheduler if needed
-    init_scheduler()
-    
-    job_id = f'renewal_{account.id}'
-    
-    try:
-        scheduler.remove_job(job_id)
-    except:
-        pass
-    
-    # If we have a next_renewal date, schedule for that specific time
-    if account.next_renewal:
-        from apscheduler.triggers.date import DateTrigger
-        import pytz
-        
-        # Ensure next_renewal is timezone-aware (stored as UTC)
-        if account.next_renewal.tzinfo is None:
-            next_run = pytz.UTC.localize(account.next_renewal)
-        else:
-            next_run = account.next_renewal
-        
-        scheduler.add_job(
-            func=run_account_renewal,
-            trigger=DateTrigger(run_date=next_run),
-            id=job_id,
-            args=[account.id],
-            replace_existing=True
-        )
-        logger.info(f"📅 Scheduled renewal for {account.name} at {next_run}")
-    else:
-        # Fallback to interval-based scheduling using effective interval
-        scheduler.add_job(
-            func=run_account_renewal,
-            trigger=IntervalTrigger(hours=account.effective_renewal_interval, minutes=1),
-            id=job_id,
-            args=[account.id],
-            replace_existing=True
-        )
-        logger.info(f"⏰ Scheduled renewal for {account.name} every {account.effective_renewal_interval} hours")
-
-def run_account_renewal(account_id):
-    """Run renewal for a specific account (called by scheduler)."""
-    with app.app_context():
-        account = Account.query.get(account_id)
-        if not account or not account.active:
-            return
-        try:
-            result = _execute_renewal(account)
-            if result is None:
-                logger.warning(f"Scheduled renewal skipped for {account.name} — library config missing.")
-            elif result.success:
-                logger.info(f"Scheduled renewal succeeded for {account.name} ({result.duration_ms}ms)")
-            else:
-                logger.warning(f"Scheduled renewal failed for {account.name}: {result.message}")
-        except Exception as e:
-            logger.error(f"Scheduled renewal crashed for {account.name}: {e}")
-            # Best-effort: keep the schedule rolling
-            try:
-                account.next_renewal = (utcnow()
-                                        + timedelta(hours=account.effective_renewal_interval, minutes=1))
-                db.session.commit()
-                logger.info(f"⏰ Scheduled retry for {account.name} using {account.effective_renewal_interval}h 1m interval despite error")
-            except Exception as commit_error:
-                logger.error(f"Failed to update next_renewal after error: {commit_error}")
-
-        finally:
-            # CRITICAL: Always reschedule, even if renewal failed
-            # This ensures continuous renewal attempts
-            try:
-                schedule_account_renewal(account)
-            except Exception as schedule_error:
-                logger.error(f"Failed to reschedule renewal for {account.name}: {schedule_error}")
-
 def init_db():
     """Initialize database"""
     with app.app_context():
@@ -967,19 +876,17 @@ def create_app():
     """Application factory pattern"""
     try:
         init_db()
-        
-        # Schedule renewals for active accounts
+
+        # Bind the scheduler module to this app + the renewal callback.
+        # Done after init_db() so the model layer is ready, before any
+        # schedule_account_renewal() call.
+        _scheduler_mod.init(app, _execute_renewal)
+
         with app.app_context():
             try:
-                # Initialize scheduler first
-                init_scheduler()
-                
-                # Schedule all active accounts
                 active_accounts = Account.query.filter_by(active=True).all()
                 for account in active_accounts:
                     schedule_account_renewal(account)
-                    logger.info(f"📅 Scheduled renewal for {account.name}")
-                
                 logger.info(f"✅ Scheduled {len(active_accounts)} active accounts for renewal")
             except Exception as e:
                 logger.warning(f"Could not schedule renewals at startup: {e}")
