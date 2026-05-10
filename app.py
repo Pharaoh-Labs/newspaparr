@@ -19,13 +19,10 @@ import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
-from flask_wtf import FlaskForm
 from werkzeug.middleware.proxy_fix import ProxyFix
-from wtforms import (BooleanField, IntegerField, PasswordField, SelectField,
-                     StringField, TextAreaField)
-from wtforms.validators import DataRequired, NumberRange
 
 from extensions import db, migrate
+from forms import AccountForm, EditAccountForm, LibraryForm
 from icons import icon
 from models import Account, LibraryConfig, RenewalLog
 from paths import DATA_DIR, DEFAULT_DB_URL, LOGS_DIR, SCREENSHOTS_DIR
@@ -207,43 +204,7 @@ def init_scheduler():
         return True
     return False
 
-# Models live in models.py and are imported above. Forms follow.
-class AccountForm(FlaskForm):
-    """Form for account configuration. NYT credentials are optional —
-    cookies captured via the dashboard's noVNC capture flow are the primary
-    auth path; credentials only matter as a fallback if cookies expire."""
-    name = StringField('Account Name', validators=[DataRequired()])
-    library_type = SelectField('Library Type', choices=[])
-    library_username = StringField('Library Username/Card Number', validators=[DataRequired()])
-    library_password = PasswordField('Library Password/PIN', validators=[DataRequired()])
-    renewal_interval = IntegerField('Renewal Interval Override (hours)', validators=[])
-    active = BooleanField('Active', default=True)
-
-class EditAccountForm(FlaskForm):
-    """Form for editing account configuration."""
-    name = StringField('Account Name', validators=[DataRequired()])
-    library_type = SelectField('Library Type', choices=[])
-    library_username = StringField('Library Username/Card Number', validators=[DataRequired()])
-    library_password = PasswordField('Library Password/PIN', validators=[])  # editable but optional
-    renewal_interval = IntegerField('Renewal Interval Override (hours)', validators=[])
-    active = BooleanField('Active', default=True)
-
-class LibraryForm(FlaskForm):
-    """Form for library configuration"""
-    name = StringField('Library Name', validators=[DataRequired()])
-    type = SelectField('Library Type', choices=[
-        ('generic_oclc', 'OCLC Library'),
-        ('custom', 'Custom Library')
-    ])
-    nyt_url = StringField('NYT Access URL', validators=[DataRequired()],
-                         description='Direct URL for NYT access through your library')
-    homepage = StringField('Library Homepage (optional)', description='Main library website URL for linking')
-    default_renewal_hours = IntegerField('Default Renewal Hours',
-                                          validators=[NumberRange(min=1, max=168)], default=24,
-                                          description='Renewals will run at this interval + 1 minute')
-    active = BooleanField('Active', default=True)
-    custom_config = TextAreaField('Additional Configuration (JSON)',
-                                   description='Optional: JSON configuration for advanced settings')
+# Models + forms live in models.py and forms.py and are imported above.
 
 # Routes
 @app.route('/')
