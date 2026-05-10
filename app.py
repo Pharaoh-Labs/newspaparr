@@ -7,7 +7,13 @@ import atexit
 import logging
 import os
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+
+def utcnow() -> datetime:
+    """Naive UTC datetime, matching the DB column type. Replaces the
+    deprecated `utcnow()` which emits DeprecationWarning on 3.12+."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -21,7 +27,6 @@ from wtforms import (BooleanField, IntegerField, PasswordField, SelectField,
                      StringField, TextAreaField)
 from wtforms.validators import DataRequired, NumberRange
 
-from error_handling import StandardizedLogger, with_error_handling
 from icons import icon
 from paths import DATA_DIR, DEFAULT_DB_URL
 import notify
@@ -29,7 +34,7 @@ from renewer import State, renew
 
 __version__ = '1.1.0'
 
-startup_time = datetime.utcnow()
+startup_time = utcnow()
 
 
 def _resolve_secret_key() -> str:
@@ -90,10 +95,11 @@ def library_type_display_filter(value):
     }
     return type_mapping.get(value, value.replace('_', ' ').title())
 
-# Add datetime context for templates
+# Add datetime context for templates. Templates use `now_utc()` instead of
+# `datetime.utcnow()` because the latter is deprecated in 3.12+.
 @app.context_processor
 def inject_datetime():
-    return {'datetime': datetime}
+    return {'datetime': datetime, 'now_utc': utcnow}
 
 # Add timezone filter for converting UTC to local time
 @app.template_filter('strip_status_emoji')
@@ -129,7 +135,7 @@ def localtime_filter(dt):
 # Add version, uptime, and sidebar-badge counts to every template
 @app.context_processor
 def inject_app_info():
-    uptime = datetime.utcnow() - startup_time
+    uptime = utcnow() - startup_time
     hours = int(uptime.total_seconds() // 3600)
     minutes = int((uptime.total_seconds() % 3600) // 60)
     uptime_str = f"{hours}h {minutes}m" if hours > 0 else f"{minutes}m"
@@ -175,6 +181,10 @@ if not logging.getLogger().handlers:
         ]
     )
     
+    # Quiet down chatty libraries
+    logging.getLogger('httpx').setLevel(logging.WARNING)
+    logging.getLogger('urllib3').setLevel(logging.WARNING)
+
     logger = logging.getLogger(__name__)
     logger.info(f"🗂️  Logging initialized from app.py - files will be saved to {logs_dir}")
 else:
@@ -303,7 +313,7 @@ def index():
     active_accounts = len([a for a in accounts if a.active])
     
     recent_renewals = RenewalLog.query.filter(
-        RenewalLog.timestamp >= datetime.utcnow() - timedelta(days=7)
+        RenewalLog.timestamp >= utcnow() - timedelta(days=7)
     ).all()
     
     success_rate = 0
@@ -394,7 +404,7 @@ def add_account():
             active=form.active.data
         )
         
-        account.next_renewal = datetime.utcnow() + timedelta(hours=account.effective_renewal_interval)
+        account.next_renewal = utcnow() + timedelta(hours=account.effective_renewal_interval)
         
         db.session.add(account)
         db.session.commit()
@@ -446,7 +456,7 @@ def edit_account(id):
         account.active = form.active.data
         
         # Update next renewal time since renewal hours may have changed
-        account.next_renewal = datetime.utcnow() + timedelta(hours=account.effective_renewal_interval)
+        account.next_renewal = utcnow() + timedelta(hours=account.effective_renewal_interval)
         
         db.session.commit()
         
@@ -504,14 +514,14 @@ def _execute_renewal(account):
     _record_renewal_log(account, success=result.success, message=result.message,
                         duration_ms=result.duration_ms, result_url=result.final_url)
 
-    account.last_renewal = datetime.utcnow()
+    account.last_renewal = utcnow()
     if result.success and result.expiration:
         account.next_renewal = result.expiration + timedelta(minutes=1)
     else:
         # Fall back to library default + 1 minute (covers both
         # success-without-expiration and any failure — failed renewals retry
         # on the same cadence).
-        account.next_renewal = (datetime.utcnow()
+        account.next_renewal = (utcnow()
                                 + timedelta(hours=account.effective_renewal_interval, minutes=1))
     db.session.commit()
     schedule_account_renewal(account)
@@ -541,7 +551,6 @@ def _record_renewal_log(account, *, success, message, duration_ms, result_url=No
 def manual_renewal(id):
     """Manually trigger renewal for an account."""
     account = Account.query.get_or_404(id)
-    logger = StandardizedLogger(__name__)
     try:
         result = _execute_renewal(account)
         if result is None:
@@ -591,7 +600,7 @@ def capture_finish(id, token):
     if save:
         account = Account.query.get(id)
         if account is not None:
-            account.profile_captured_at = datetime.utcnow()
+            account.profile_captured_at = utcnow()
             db.session.commit()
     return jsonify(ok=True, saved=save)
 
@@ -774,7 +783,7 @@ def api_status():
         'active_accounts': len([a for a in accounts if a.active]),
         'scheduled_jobs': active_jobs,
         'system_status': 'running',
-        'last_check': datetime.utcnow().isoformat()
+        'last_check': utcnow().isoformat()
     }
 
     return jsonify(status)
@@ -799,9 +808,9 @@ def health_check():
 
         health_status = {
             'status': 'healthy' if is_healthy else 'unhealthy',
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': utcnow().isoformat(),
             'version': __version__,
-            'uptime_seconds': int((datetime.utcnow() - startup_time).total_seconds()),
+            'uptime_seconds': int((utcnow() - startup_time).total_seconds()),
             'checks': {
                 'database': 'healthy' if db_healthy else 'unhealthy',
                 'scheduler': 'healthy' if scheduler_healthy else 'unhealthy',
@@ -814,7 +823,7 @@ def health_check():
         return jsonify({
             'status': 'error',
             'error': str(e),
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': utcnow().isoformat()
         }), 500
 
 @app.route('/api/logs')
@@ -974,7 +983,7 @@ def run_account_renewal(account_id):
             logger.error(f"Scheduled renewal crashed for {account.name}: {e}")
             # Best-effort: keep the schedule rolling
             try:
-                account.next_renewal = (datetime.utcnow()
+                account.next_renewal = (utcnow()
                                         + timedelta(hours=account.effective_renewal_interval, minutes=1))
                 db.session.commit()
                 logger.info(f"⏰ Scheduled retry for {account.name} using {account.effective_renewal_interval}h 1m interval despite error")

@@ -1,0 +1,5 @@
+# Dev-only dependencies (not shipped in the Docker image).
+# Install with: .venv/bin/pip install -r requirements-dev.txt
+-r requirements.txt
+
+pytest>=8.0.0

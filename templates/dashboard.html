@@ -18,7 +18,7 @@
     <div class="card p-5">
         <p class="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">Next renewal</p>
         {% if next_renewal %}
-            {% set time_diff = (next_renewal.next_renewal - datetime.utcnow()).total_seconds() %}
+            {% set time_diff = (next_renewal.next_renewal - now_utc()).total_seconds() %}
             {% if time_diff > 0 %}
                 {% set hours = (time_diff // 3600)|int %}
                 {% set minutes = ((time_diff % 3600) // 60)|int %}

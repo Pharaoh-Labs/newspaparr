@@ -11,7 +11,7 @@ if [[ ! -d .venv ]]; then
     echo "Creating .venv..."
     python3 -m venv .venv
     .venv/bin/pip install --upgrade pip setuptools wheel
-    .venv/bin/pip install -r requirements.txt
+    .venv/bin/pip install -r requirements-dev.txt
 fi
 
 if [[ -f .env.local ]]; then
@@ -25,7 +25,7 @@ export DATABASE_URL="${DATABASE_URL:-sqlite:///$(pwd)/data/newspaparr.db}"
 export FLASK_APP="${FLASK_APP:-wsgi:app}"
 export PYTHONUNBUFFERED=1
 
-mkdir -p data/logs data/debug/screenshots
+mkdir -p data/logs
 
 exec .venv/bin/gunicorn \
     --bind 0.0.0.0:1851 \
