@@ -31,7 +31,8 @@ proc_name = 'newspaparr'
 
 # Server mechanics
 daemon = False
-pidfile = '/app/data/newspaparr.pid'
+_data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
+pidfile = os.environ.get('GUNICORN_PIDFILE', os.path.join(_data_dir, 'newspaparr.pid'))
 user = None
 group = None
 tmp_upload_dir = None

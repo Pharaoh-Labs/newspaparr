@@ -146,3 +146,16 @@ docs/.doctrees/
 # Personal project files
 CLAUDE.md
 BOOTSTRAP_SUMMARY.md
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+.beads-credential-key
+
+# Tailwind standalone binary (re-fetched by scripts/build-css.sh)
+tools/
+
+# Claude Code working dir
+.claude/
+
+# Stale data backups (manually rotated; not source-controlled)
+data.bak-*/

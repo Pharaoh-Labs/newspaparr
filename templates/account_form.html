@@ -2,331 +2,74 @@
 
 {% block title %}{{ title }} - Newspaparr{% endblock %}
 {% block page_title %}{{ title }}{% endblock %}
-{% block page_description %}
-    {% if account %}
-        Edit account settings and renewal preferences
-    {% else %}
-        Add a new account for automatic newspaper library pass renewals
-    {% endif %}
-{% endblock %}
 
 {% block content %}
-<div class="max-w-4xl mx-auto">
-    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-600">
-            <div class="flex items-center justify-between">
-                <div>
-                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ title }}</h3>
-                    <p class="text-gray-600 dark:text-gray-400">
-                        {% if account %}
-                            Update your account information and renewal settings
-                        {% else %}
-                            Enter your library and newspaper credentials to start automatic renewals
-                        {% endif %}
-                    </p>
-                </div>
-                <a href="{{ url_for('accounts') }}" class="text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 transition-colors">
-                    <i class="fas fa-times text-xl"></i>
-                </a>
-            </div>
-        </div>
-        
-        <form method="POST" class="p-6">
+<div class="max-w-2xl mx-auto">
+    <div class="card p-6">
+        <form method="POST" class="space-y-6">
             {{ form.hidden_tag() }}
-            
-            <!-- Account Information Section -->
-            <div class="mb-8">
-                <h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-                    <div class="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center mr-3">
-                        <i class="fas fa-user text-white"></i>
-                    </div>
-                    Account Information
-                </h4>
-                
-                <!-- Configuration Notice -->
-                <div class="mb-6">
-                    <div class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg p-4">
-                        <div class="flex items-start">
-                            <i class="fas fa-lightbulb text-yellow-600 mt-1 mr-3"></i>
-                            <div>
-                                <h5 class="font-medium text-yellow-900 dark:text-yellow-200 mb-1">Important: Newspaper & Library Pairing</h5>
-                                <p class="text-sm text-yellow-800 dark:text-yellow-200">
-                                    Each newspaper requires its own library configuration. Make sure to select the library configuration that was set up with the correct newspaper-specific login URL.
-                                    If you don't see a matching library configuration, <a href="{{ url_for('add_library') }}" class="underline font-medium">create one first</a>.
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
 
-                <div class="mb-6">
-                    <!-- Newspaper Type -->
+            <div>
+                <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-4">Identity</h3>
+                <div class="space-y-4">
                     <div>
-                        {{ form.newspaper_type.label(class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2") }}
-                        {{ form.newspaper_type(class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors", id="newspaper_type") }}
-                        {% if form.newspaper_type.errors %}
-                            <p class="mt-1 text-sm text-red-600">{{ form.newspaper_type.errors[0] }}</p>
-                        {% endif %}
-                        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Choose which newspaper to renew</p>
-                    </div>
-                </div>
-
-                
-                <!-- Newspaper Availability Notice -->
-                <div class="mb-6">
-                    <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
-                        <div class="flex items-start">
-                            <i class="fas fa-info-circle text-blue-600 mt-1 mr-3"></i>
-                            <div>
-                                <h5 class="font-medium text-blue-900 dark:text-blue-200 mb-2">Check Your Library's Newspaper Access</h5>
-                                <p class="text-sm text-blue-800 dark:text-blue-200 mb-3">
-                                    Not all libraries provide access to all newspapers. Before creating an account, verify that your library offers digital access to your chosen newspaper.
-                                </p>
-                                <div class="text-sm text-blue-800 dark:text-blue-200 space-y-2">
-                                    <p><strong>How to check:</strong></p>
-                                    <ul class="list-disc list-inside space-y-1 ml-4">
-                                        <li>Visit your library's website or digital resources page</li>
-                                        <li>Look for "New York Times" or "Wall Street Journal" in their database list</li>
-                                        <li>Contact your library's reference desk to confirm availability</li>
-                                        <li>Test the newspaper link through your library's portal before setting up automation</li>
-                                    </ul>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <!-- Account Name -->
-                    <div>
-                        {{ form.name.label(class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2") }}
-                        {{ form.name(class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors", placeholder="e.g., My Account, Wife's Account") }}
-                        {% if form.name.errors %}
-                            <p class="mt-1 text-sm text-red-600">{{ form.name.errors[0] }}</p>
-                        {% endif %}
-                    </div>
-                    
-                    <!-- Library Type -->
-                    <div>
-                        {{ form.library_type.label(class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2") }}
-                        {{ form.library_type(class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors") }}
-                        {% if form.library_type.errors %}
-                            <p class="mt-1 text-sm text-red-600">{{ form.library_type.errors[0] }}</p>
-                        {% endif %}
-                        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Select the library configuration that matches your chosen newspaper</p>
+                        {{ form.name.label(class="label") }}
+                        {{ form.name(class="input", placeholder="e.g. Mina") }}
+                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">A short label so you can tell accounts apart.</p>
+                        {% if form.name.errors %}<p class="mt-1 text-xs text-red-600">{{ form.name.errors[0] }}</p>{% endif %}
                     </div>
                 </div>
             </div>
-            
-            <!-- Library Credentials Section -->
-            <div class="mb-8">
-                <h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-                    <div class="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center mr-3">
-                        <i class="fas fa-university text-white"></i>
+
+            <div class="border-t border-gray-200 dark:border-gray-700 pt-6">
+                <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-4">Library</h3>
+                <div class="space-y-4">
+                    <div>
+                        {{ form.library_type.label(class="label") }}
+                        {{ form.library_type(class="input") }}
+                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Need a new one? <a href="{{ url_for('add_library') }}" class="text-brand-600 hover:underline">Add a library</a> first.</p>
+                        {% if form.library_type.errors %}<p class="mt-1 text-xs text-red-600">{{ form.library_type.errors[0] }}</p>{% endif %}
                     </div>
-                    Library Credentials
-                </h4>
-                
-                <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4 mb-6">
-                    <div class="flex items-start">
-                        <i class="fas fa-info-circle text-blue-600 mt-1 mr-3"></i>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <h5 class="font-medium text-blue-900 dark:text-blue-200 mb-1">Security Note</h5>
-                            <p class="text-sm text-blue-800 dark:text-blue-200">
-                                Your credentials are stored securely and only used for automatic renewals.
-                            </p>
+                            {{ form.library_username.label(class="label") }}
+                            {{ form.library_username(class="input", placeholder="Library card / barcode") }}
+                            {% if form.library_username.errors %}<p class="mt-1 text-xs text-red-600">{{ form.library_username.errors[0] }}</p>{% endif %}
                         </div>
-                    </div>
-                </div>
-                
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <!-- Library Username -->
-                    <div>
-                        {{ form.library_username.label(class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2") }}
-                        {{ form.library_username(class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors", placeholder="Library card number or username") }}
-                        {% if form.library_username.errors %}
-                            <p class="mt-1 text-sm text-red-600">{{ form.library_username.errors[0] }}</p>
-                        {% endif %}
-                    </div>
-                    
-                    <!-- Library Password -->
-                    <div>
-                        {{ form.library_password.label(class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2") }}
-                        <div class="relative">
-                            {{ form.library_password(class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors pr-12", placeholder=("Leave blank to keep current password" if account else "Library PIN or password")) }}
-                            <button type="button" onclick="togglePassword('library_password')" class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300">
-                                <i class="fas fa-eye" id="library_password_eye"></i>
-                            </button>
-                        </div>
-                        {% if form.library_password.errors %}
-                            <p class="mt-1 text-sm text-red-600">{{ form.library_password.errors[0] }}</p>
-                        {% endif %}
-                        {% if account %}
-                            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Leave blank to keep current password</p>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Newspaper Account Section -->
-            <div class="mb-8">
-                <h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-                    <div class="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center mr-3">
-                        <i class="fas fa-newspaper text-white"></i>
-                    </div>
-                    Newspaper Account Information
-                </h4>
-                
-                <div id="library_auth_section" class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <!-- Newspaper Email -->
-                    <div>
-                        {{ form.username.label(class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2") }}
-                        {{ form.username(class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors", placeholder="your.email@example.com") }}
-                        {% if form.username.errors %}
-                            <p class="mt-1 text-sm text-red-600">{{ form.username.errors[0] }}</p>
-                        {% endif %}
-                    </div>
-                    
-                    <!-- Newspaper Password -->
-                    <div>
-                        {{ form.password.label(class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2") }}
-                        <div class="relative">
-                            {{ form.password(class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors pr-12", placeholder=("Leave blank to keep current password" if account else "Newspaper account password")) }}
-                            <button type="button" onclick="togglePassword('password')" class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300">
-                                <i class="fas fa-eye" id="password_eye"></i>
-                            </button>
-                        </div>
-                        {% if form.password.errors %}
-                            <p class="mt-1 text-sm text-red-600">{{ form.password.errors[0] }}</p>
-                        {% endif %}
-                        {% if account %}
-                            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Leave blank to keep current password</p>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Account Settings Section -->
-            <div class="mb-8">
-                <h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-                    <div class="w-8 h-8 bg-purple-500 rounded-lg flex items-center justify-center mr-3">
-                        <i class="fas fa-cog text-white"></i>
-                    </div>
-                    Account Settings
-                </h4>
-                
-                <div class="grid grid-cols-1 gap-6">
-                    <!-- Account Status -->
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Account Status</label>
-                        <div class="flex items-center p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                            {{ form.active(class="w-5 h-5 text-blue-600 bg-gray-100 dark:bg-gray-600 border-gray-300 dark:border-gray-500 rounded focus:ring-blue-500 focus:ring-2") }}
-                            <div class="ml-3">
-                                {{ form.active.label(class="text-sm font-medium text-gray-700 dark:text-gray-300") }}
-                                <p class="text-sm text-gray-500 dark:text-gray-400">Enable automatic renewals for this account</p>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Renewal Interval Override -->
-                    <div>
-                        {{ form.renewal_interval.label(class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2") }}
-                        {{ form.renewal_interval(class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors", placeholder="Leave blank to use library default") }}
-                        {% if form.renewal_interval.errors %}
-                            <p class="mt-1 text-sm text-red-600">{{ form.renewal_interval.errors[0] }}</p>
-                        {% endif %}
-                        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                            Optional: Override the library's default renewal interval for this specific account. 
-                            For example, some newspapers may require different renewal frequencies (e.g., NYT: 24h, WSJ: 72h).
-                        </p>
-                    </div>
-                    
-                    <!-- Renewal Info -->
-                    <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
-                        <div class="flex items-start">
-                            <i class="fas fa-info-circle text-blue-600 mt-1 mr-3"></i>
-                            <div>
-                                <h5 class="font-medium text-blue-900 dark:text-blue-200 mb-1">How Renewal Intervals Work</h5>
-                                <p class="text-sm text-blue-800 dark:text-blue-200">
-                                    By default, accounts inherit the renewal interval from their library configuration. 
-                                    You can override this on a per-account basis if your library provides different access durations for different newspapers.
-                                </p>
-                            </div>
+                        <div>
+                            {{ form.library_password.label(class="label") }}
+                            {{ form.library_password(class="input", placeholder=("Leave blank to keep current" if account else "PIN or password")) }}
+                            {% if form.library_password.errors %}<p class="mt-1 text-xs text-red-600">{{ form.library_password.errors[0] }}</p>{% endif %}
                         </div>
                     </div>
                 </div>
             </div>
-            
-            <!-- Action Buttons -->
-            <div class="flex items-center justify-between pt-6 border-t border-gray-200 dark:border-gray-600">
-                <a href="{{ url_for('accounts') }}" class="bg-gray-200 hover:bg-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500 text-gray-800 dark:text-gray-200 px-6 py-3 rounded-lg font-medium transition-colors">
-                    <i class="fas fa-arrow-left mr-2"></i>Back to Accounts
-                </a>
-                
-                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-medium transition-colors shadow-sm">
-                    <i class="fas fa-save mr-2"></i>
-                    {{ 'Update Account' if account else 'Add Account' }}
-                </button>
+
+            <div class="border-t border-gray-200 dark:border-gray-700 pt-6">
+                <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-4">Renewal</h3>
+                <div class="space-y-4">
+                    <div>
+                        {{ form.renewal_interval.label(class="label") }}
+                        {{ form.renewal_interval(class="input", placeholder="Inherits from library default") }}
+                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Override how often this account renews. Blank = use library default.</p>
+                    </div>
+                    <label class="flex items-center gap-3">
+                        {{ form.active(class="h-4 w-4 rounded text-brand-600 focus:ring-brand-500") }}
+                        <span class="text-sm">Auto-renew this account on schedule</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="border-t border-gray-200 dark:border-gray-700 pt-6 bg-blue-50 dark:bg-blue-900/20 -mx-6 -mb-6 px-6 py-5 rounded-b-lg">
+                <h3 class="text-sm font-semibold text-blue-900 dark:text-blue-200 mb-1">Capture a NYT session next</h3>
+                <p class="text-xs text-blue-800 dark:text-blue-300">After saving, click the {{ icon('key') }} icon on the account list to log into NYT inside an embedded browser. The captured cookies are what authenticate every renewal — no NYT password is stored here.</p>
+            </div>
+
+            <div class="flex items-center justify-end gap-2 pt-2">
+                <a href="{{ url_for('accounts') }}" class="btn btn-secondary">Cancel</a>
+                <button type="submit" class="btn btn-primary">{% if account %}Save{% else %}Create{% endif %}</button>
             </div>
         </form>
     </div>
-    
 </div>
-{% endblock %}
-
-{% block extra_scripts %}
-<script>
-// Password visibility toggle
-function togglePassword(fieldId) {
-    const field = document.getElementById(fieldId);
-    const eye = document.getElementById(fieldId + '_eye');
-    
-    if (field.type === 'password') {
-        field.type = 'text';
-        eye.classList.remove('fa-eye');
-        eye.classList.add('fa-eye-slash');
-    } else {
-        field.type = 'password';
-        eye.classList.remove('fa-eye-slash');
-        eye.classList.add('fa-eye');
-    }
-}
-
-
-// Newspaper type switching  
-function toggleNewspaperSections() {
-    const newspaperType = document.getElementById('newspaper_type').value;
-    const libraryAuthSection = document.getElementById('library_auth_section');
-    
-    // No longer needed - both newspapers use username/password
-}
-
-// Initialize on page load
-document.addEventListener('DOMContentLoaded', function() {
-    toggleNewspaperSections();
-    
-    // Handle newspaper type changes
-    document.getElementById('newspaper_type').addEventListener('change', toggleNewspaperSections);
-    
-    // Legacy code - Google OAuth has been removed
-    {% if google_email %}
-    document.getElementById('newspaper_type').value = 'nyt';
-    toggleNewspaperSections();
-    {% endif %}
-});
-
-// Form validation enhancement
-document.querySelector('form').addEventListener('submit', function(e) {
-    const submitButton = this.querySelector('button[type="submit"]');
-    const originalText = submitButton.innerHTML;
-    
-    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Saving...';
-    submitButton.disabled = true;
-});
-
-// Library type information (renewal hours are inherited from library config)
-document.getElementById('library_type').addEventListener('change', function() {
-    const selectedOption = this.options[this.selectedIndex];
-    console.log('Selected library:', selectedOption.text);
-});
-</script>
 {% endblock %}

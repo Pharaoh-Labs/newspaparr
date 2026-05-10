@@ -4,406 +4,115 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Newspaparr{% endblock %}</title>
-    
-    <!-- Favicon -->
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iI2Y5NzMxNiI+PHBhdGggZD0iTTIgM2gyMGMuNTUgMCAxIC40NSAxIDF2MTZjMCAuNTUtLjQ1IDEtMSAxSDJjLS41NSAwLTEtLjQ1LTEtMVY0YzAtLjU1LjQ1LTEgMS0xem0yIDJ2MTRoMTZWNUg0em0yIDJoOHYySDZWN3ptMCAzaDEydjFINnYtMXptMCAyaDEydjFINnYtMXptMCAyaDh2MUg2di0xem0xMC01aDJ2NGgtMlY5eiIvPjwvc3ZnPg==">
-    <link rel="shortcut icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iI2Y5NzMxNiI+PHBhdGggZD0iTTIgM2gyMGMuNTUgMCAxIC40NSAxIDF2MTZjMCAuNTUtLjQ1IDEtMSAxSDJjLS41NSAwLTEtLjQ1LTEtMVY0YzAtLjU1LjQ1LTEgMS0xem0yIDJ2MTRoMTZWNUg0em0yIDJoOHYySDZWN3ptMCAzaDEydjFINnYtMXptMCAyaDEydjFINnYtMXptMCAyaDh2MUg2di0xem0xMC01aDJ2NGgtMlY5eiIvPjwvc3ZnPg==">
-    <link rel="apple-touch-icon" sizes="180x180" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iI2Y5NzMxNiI+PHBhdGggZD0iTTIgM2gyMGMuNTUgMCAxIC40NSAxIDF2MTZjMCAuNTUtLjQ1IDEtMSAxSDJjLS41NSAwLTEtLjQ1LTEtMVY0YzAtLjU1LjQ1LTEgMS0xem0yIDJ2MTRoMTZWNUg0em0yIDJoOHYySDZWN3ptMCAzaDEydjFINnYtMXptMCAyaDEydjFINnYtMXptMCAyaDh2MUg2di0xem0xMC01aDJ2NGgtMlY5eiIvPjwvc3ZnPg==">
-    
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-        }
-    </script>
-    
-    <!-- Font Awesome for icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
-    <!-- Custom styles -->
-    <style>
-        .nyt-gradient {
-            background: linear-gradient(135deg, #000000 0%, #1a1a1a 50%, #333333 100%);
-        }
-        
-        .nyt-accent {
-            background: linear-gradient(90deg, #ff6b35 0%, #f7931e 100%);
-        }
-        
-        .card-hover {
-            transition: all 0.3s ease;
-        }
-        
-        .card-hover:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
-        }
-        
-        .status-indicator {
-            animation: pulse 2s infinite;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.7; }
-        }
-        
-        .nyt-link {
-            transition: all 0.2s ease;
-            border: 2px solid transparent;
-        }
-        
-        .nyt-link:hover {
-            border-color: #ff6b35;
-            transform: scale(1.05);
-        }
-        
-        .sidebar-item {
-            transition: all 0.2s ease;
-        }
-        
-        .sidebar-item:hover {
-            background-color: rgba(255, 107, 53, 0.1);
-            border-left: 4px solid #ff6b35;
-        }
-        
-        .dark .sidebar-item:hover {
-            background-color: rgba(255, 107, 53, 0.2);
-        }
-        
-        .sidebar-item.active {
-            background-color: rgba(255, 107, 53, 0.15);
-            border-left: 4px solid #ff6b35;
-        }
-        
-        .dark .sidebar-item.active {
-            background-color: rgba(255, 107, 53, 0.25);
-        }
-    </style>
-    
+
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iIzRmNDZlNSI+PHBhdGggZD0iTTQgM2gxNmExIDEgMCAwIDEgMSAxdjE2YTEgMSAwIDAgMS0xIDFINGExIDEgMCAwIDEtMS0xVjRhMSAxIDAgMCAxIDEtMXptMSAydjE0aDE0VjVINXptMiAyaDEwdjJIN1Y3em0wIDNoMTB2MUg3di0xem0wIDJoMTB2MUg3di0xem0wIDJoOHYxSDdWMTR6Ii8+PC9zdmc+">
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
     {% block extra_head %}{% endblock %}
 </head>
-<body class="bg-gray-50 dark:bg-gray-900 min-h-screen transition-colors">
-    <!-- Mobile menu button -->
-    <button id="mobile-menu-btn" class="lg:hidden fixed top-4 left-4 z-20 bg-white dark:bg-gray-800 p-2 rounded-lg shadow-lg">
-        <i class="fas fa-bars text-gray-600 dark:text-gray-300"></i>
+<body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 min-h-screen">
+    <button id="mobile-menu-btn" class="lg:hidden fixed top-4 left-4 z-30 bg-white dark:bg-gray-800 p-2 rounded-md shadow border border-gray-200 dark:border-gray-700">
+        {{ icon('bars', cls='w-4 h-4 text-gray-600 dark:text-gray-300') }}
     </button>
-
-    <!-- Mobile overlay -->
-    <div id="mobile-overlay" class="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-10 hidden"></div>
+    <div id="mobile-overlay" class="lg:hidden fixed inset-0 bg-black/40 z-10 hidden"></div>
 
     <div class="flex h-screen">
-        <!-- Sidebar -->
-        <nav id="sidebar" class="bg-white dark:bg-gray-800 shadow-xl w-64 fixed h-full z-10 lg:relative lg:translate-x-0 transform -translate-x-full transition-transform duration-300 ease-in-out">
-            <div class="bg-gray-900 dark:bg-gray-800 p-6">
-                <div class="flex items-center space-x-3">
-                    <div class="w-10 h-10 bg-orange-500 rounded-lg flex items-center justify-center">
-                        <i class="fas fa-newspaper text-white text-xl"></i>
+        <nav id="sidebar" class="bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 w-60 fixed h-full z-20 lg:relative lg:translate-x-0 transform -translate-x-full transition-transform duration-200 ease-out">
+            <div class="px-5 py-5 border-b border-gray-200 dark:border-gray-700">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 bg-brand-600 rounded-md flex items-center justify-center">
+                        {{ icon('newspaper', cls='w-4 h-4 text-white') }}
                     </div>
                     <div>
-                        <h1 class="text-white font-bold text-lg">Newspaparr</h1>
+                        <h1 class="font-semibold tracking-tight">Newspaparr</h1>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">v{{ app_version }}</p>
                     </div>
                 </div>
             </div>
-            
-            <div class="py-4">
-                <a href="{{ url_for('index') }}" class="sidebar-item flex items-center px-6 py-3 text-gray-700 dark:text-gray-300 {% if request.endpoint == 'index' %}active{% endif %}">
-                    <i class="fas fa-chart-line w-5 mr-3"></i>
-                    Dashboard
+
+            <div class="p-3 space-y-0.5">
+                <a href="{{ url_for('index') }}" class="nav-link {% if request.endpoint == 'index' %}active{% endif %}">
+                    {{ icon('chart') }} Dashboard
                 </a>
-                
-                <a href="{{ url_for('accounts') }}" class="sidebar-item flex items-center px-6 py-3 text-gray-700 dark:text-gray-300 {% if request.endpoint == 'accounts' %}active{% endif %}">
-                    <i class="fas fa-users w-5 mr-3"></i>
-                    Accounts
-                    <span class="ml-auto bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs font-medium px-2.5 py-0.5 rounded-full">{{ account_count if account_count else 0 }}</span>
+                <a href="{{ url_for('accounts') }}" class="nav-link {% if request.endpoint == 'accounts' %}active{% endif %}">
+                    {{ icon('users') }} Accounts
+                    {% if account_count %}<span class="ml-auto text-xs px-2 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700">{{ account_count }}</span>{% endif %}
                 </a>
-                
-                <a href="{{ url_for('libraries') }}" class="sidebar-item flex items-center px-6 py-3 text-gray-700 dark:text-gray-300 {% if request.endpoint == 'libraries' %}active{% endif %}">
-                    <i class="fas fa-university w-5 mr-3"></i>
-                    Libraries
+                <a href="{{ url_for('libraries') }}" class="nav-link {% if request.endpoint == 'libraries' %}active{% endif %}">
+                    {{ icon('library') }} Libraries
                 </a>
-                
-                <a href="{{ url_for('logs') }}" class="sidebar-item flex items-center px-6 py-3 text-gray-700 dark:text-gray-300 {% if request.endpoint == 'logs' %}active{% endif %}">
-                    <i class="fas fa-history w-5 mr-3"></i>
-                    Activity Logs
+                <a href="{{ url_for('logs') }}" class="nav-link {% if request.endpoint == 'logs' %}active{% endif %}">
+                    {{ icon('history') }} Activity
                 </a>
-                
-                <div class="border-t border-gray-200 dark:border-gray-700 my-4"></div>
-                
-                {% if active_newspapers %}
-                <div class="px-6 py-2">
-                    <h3 class="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">
-                        Quick Access
-                    </h3>
-                    
-                    {% if 'nyt' in active_newspapers %}
-                    <!-- NYT Section Links -->
-                    <div class="space-y-2 mb-4">
-                        <h4 class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">New York Times</h4>
-                        <a href="https://www.nytimes.com" target="_blank" class="nyt-link flex items-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg group">
-                            <div class="w-5 h-5 mr-3 flex items-center justify-center">
-                                <img src="{{ url_for('static', filename='images/icons/nyt-news.png') }}" alt="NYT News" class="w-5 h-5 rounded">
-                            </div>
-                            <div>
-                                <div class="text-sm font-medium text-gray-900 dark:text-gray-100">News</div>
-                                <div class="text-xs text-gray-500 dark:text-gray-400">Latest headlines</div>
-                            </div>
-                            <i class="fas fa-external-link-alt ml-auto text-gray-400 dark:text-gray-500 text-xs opacity-0 group-hover:opacity-100 transition-opacity"></i>
-                        </a>
-                        
-                        <a href="https://www.nytimes.com/spotlight/podcasts" target="_blank" class="nyt-link flex items-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg group">
-                            <div class="w-5 h-5 mr-3 flex items-center justify-center">
-                                <img src="{{ url_for('static', filename='images/icons/nyt-audio.png') }}" alt="NYT Audio" class="w-5 h-5 rounded">
-                            </div>
-                            <div>
-                                <div class="text-sm font-medium text-gray-900 dark:text-gray-100">Audio</div>
-                                <div class="text-xs text-gray-500 dark:text-gray-400">Podcasts & shows</div>
-                            </div>
-                            <i class="fas fa-external-link-alt ml-auto text-gray-400 dark:text-gray-500 text-xs opacity-0 group-hover:opacity-100 transition-opacity"></i>
-                        </a>
-                        
-                        <a href="https://cooking.nytimes.com" target="_blank" class="nyt-link flex items-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg group">
-                            <div class="w-5 h-5 mr-3 flex items-center justify-center">
-                                <img src="{{ url_for('static', filename='images/icons/nyt-cooking.png') }}" alt="NYT Cooking" class="w-5 h-5 rounded">
-                            </div>
-                            <div>
-                                <div class="text-sm font-medium text-gray-900 dark:text-gray-100">Cooking</div>
-                                <div class="text-xs text-gray-500 dark:text-gray-400">Recipes & tips</div>
-                            </div>
-                            <i class="fas fa-external-link-alt ml-auto text-gray-400 dark:text-gray-500 text-xs opacity-0 group-hover:opacity-100 transition-opacity"></i>
-                        </a>
-                        
-                        <a href="https://www.nytimes.com/crosswords" target="_blank" class="nyt-link flex items-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg group">
-                            <div class="w-5 h-5 mr-3 flex items-center justify-center">
-                                <img src="{{ url_for('static', filename='images/icons/nyt-games.png') }}" alt="NYT Games" class="w-5 h-5 rounded">
-                            </div>
-                            <div>
-                                <div class="text-sm font-medium text-gray-900 dark:text-gray-100">Games</div>
-                                <div class="text-xs text-gray-500 dark:text-gray-400">Crossword & more</div>
-                            </div>
-                            <i class="fas fa-external-link-alt ml-auto text-gray-400 dark:text-gray-500 text-xs opacity-0 group-hover:opacity-100 transition-opacity"></i>
-                        </a>
-                        
-                        <a href="https://www.nytimes.com/athletic" target="_blank" class="nyt-link flex items-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg group">
-                            <div class="w-5 h-5 mr-3 flex items-center justify-center">
-                                <img src="{{ url_for('static', filename='images/icons/the-athletic.png') }}" alt="The Athletic" class="w-5 h-5 rounded">
-                            </div>
-                            <div>
-                                <div class="text-sm font-medium text-gray-900 dark:text-gray-100">The Athletic</div>
-                                <div class="text-xs text-gray-500 dark:text-gray-400">Sports coverage</div>
-                            </div>
-                            <i class="fas fa-external-link-alt ml-auto text-gray-400 dark:text-gray-500 text-xs opacity-0 group-hover:opacity-100 transition-opacity"></i>
-                        </a>
-                        
-                        <a href="https://www.nytimes.com/wirecutter" target="_blank" class="nyt-link flex items-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg group">
-                            <div class="w-5 h-5 mr-3 flex items-center justify-center">
-                                <img src="{{ url_for('static', filename='images/icons/wirecutter.png') }}" alt="Wirecutter" class="w-5 h-5 rounded">
-                            </div>
-                            <div>
-                                <div class="text-sm font-medium text-gray-900 dark:text-gray-100">Wirecutter</div>
-                                <div class="text-xs text-gray-500 dark:text-gray-400">Product reviews</div>
-                            </div>
-                            <i class="fas fa-external-link-alt ml-auto text-gray-400 dark:text-gray-500 text-xs opacity-0 group-hover:opacity-100 transition-opacity"></i>
-                        </a>
-                    </div>
-                    {% endif %}
-                    
-                    {% if 'wsj' in active_newspapers %}
-                    <!-- WSJ Section Links -->
-                    <div class="space-y-2">
-                        <h4 class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Wall Street Journal</h4>
-                        <a href="https://www.wsj.com" target="_blank" class="nyt-link flex items-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg group">
-                            <div class="w-5 h-5 mr-3 flex items-center justify-center">
-                                <img src="{{ url_for('static', filename='images/icons/wsj.svg') }}" alt="WSJ" class="w-5 h-5">
-                            </div>
-                            <div>
-                                <div class="text-sm font-medium text-gray-900 dark:text-gray-100">Wall Street Journal</div>
-                                <div class="text-xs text-gray-500 dark:text-gray-400">Business & finance news</div>
-                            </div>
-                            <i class="fas fa-external-link-alt ml-auto text-gray-400 dark:text-gray-500 text-xs opacity-0 group-hover:opacity-100 transition-opacity"></i>
-                        </a>
-                    </div>
-                    {% endif %}
-                </div>
-                {% endif %}
-                
+            </div>
+
+            <div class="absolute bottom-0 left-0 right-0 p-3 border-t border-gray-200 dark:border-gray-700">
+                <a href="https://www.nytimes.com" target="_blank" rel="noopener" class="nav-link">
+                    {{ icon('newspaper') }}
+                    Open NYT {{ icon('external', cls='w-3 h-3 ml-auto opacity-50') }}
+                </a>
             </div>
         </nav>
-        
-        <!-- Main Content -->
+
         <main class="flex-1 overflow-y-auto">
-            <!-- Top Bar -->
-            <header class="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
-                <div class="px-4 lg:px-6 py-4">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <h2 class="text-xl lg:text-2xl font-bold text-gray-900 dark:text-white">{% block page_title %}{% endblock %}</h2>
-                            <p class="text-gray-600 dark:text-gray-400 text-sm lg:text-base hidden sm:block">{% block page_description %}{% endblock %}</p>
-                        </div>
-                        
-                        <div class="flex items-center space-x-2 lg:space-x-4">
-                            <!-- Version Info -->
-                            <div class="hidden sm:flex items-center space-x-2 text-xs text-gray-500">
-                                <i class="fas fa-code-branch"></i>
-                                <span>v{{ app_version }}</span>
-                            </div>
-                            
-                            <!-- Uptime -->
-                            <div class="hidden sm:flex items-center space-x-2 text-xs text-gray-500">
-                                <i class="fas fa-clock"></i>
-                                <span>{{ app_uptime }}</span>
-                            </div>
-                            
-                            <!-- System Status -->
-                            <div class="flex items-center space-x-2">
-                                <div class="status-indicator w-3 h-3 bg-green-400 rounded-full"></div>
-                                <span class="text-sm text-gray-600">Active</span>
-                            </div>
-                            
-                            <!-- Dark Mode Toggle -->
-                            <button id="darkModeToggle" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
-                                <i class="fas fa-moon text-gray-600 dark:text-gray-400"></i>
-                            </button>
-                        </div>
+            <header class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-10">
+                <div class="px-6 py-4 flex items-center justify-between">
+                    <div>
+                        <h2 class="text-lg font-semibold tracking-tight">{% block page_title %}{% endblock %}</h2>
+                        {% block page_description %}{% endblock %}
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <span class="hidden sm:inline-flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+                            <span class="w-2 h-2 bg-emerald-500 rounded-full"></span> Active
+                        </span>
+                        <button id="darkModeToggle" class="btn btn-ghost p-2" title="Toggle theme">
+                            {{ icon('moon') }}
+                        </button>
                     </div>
                 </div>
             </header>
-            
-            <!-- Flash Messages -->
+
             {% with messages = get_flashed_messages(with_categories=true) %}
-                {% if messages %}
-                    <div class="px-4 lg:px-6 py-4">
-                        {% for category, message in messages %}
-                            <div class="alert alert-{{ category }} mb-4 p-4 rounded-lg {% if category == 'success' %}bg-green-50 text-green-800 border border-green-200{% elif category == 'error' %}bg-red-50 text-red-800 border border-red-200{% else %}bg-blue-50 text-blue-800 border border-blue-200{% endif %}">
-                                <div class="flex items-center">
-                                    <i class="fas fa-{% if category == 'success' %}check-circle{% elif category == 'error' %}exclamation-circle{% else %}info-circle{% endif %} mr-2"></i>
-                                    {{ message|safe }}
-                                </div>
-                            </div>
-                        {% endfor %}
-                    </div>
-                {% endif %}
+              {% if messages %}
+                <div class="px-6 pt-4 space-y-2">
+                {% for category, message in messages %}
+                  <div class="px-4 py-2.5 rounded-md text-sm
+                    {% if category == 'success' %}bg-emerald-50 text-emerald-800 border border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-200 dark:border-emerald-800
+                    {% elif category == 'error' %}bg-red-50 text-red-800 border border-red-200 dark:bg-red-900/30 dark:text-red-200 dark:border-red-800
+                    {% else %}bg-blue-50 text-blue-800 border border-blue-200 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-800{% endif %}">
+                    {{ message|safe }}
+                  </div>
+                {% endfor %}
+                </div>
+              {% endif %}
             {% endwith %}
-            
-            <!-- Page Content -->
-            <div class="px-4 lg:px-6 py-4 lg:py-6">
+
+            <div class="px-6 py-6">
                 {% block content %}{% endblock %}
             </div>
         </main>
     </div>
-    
-    <!-- Scripts -->
+
     <script>
-        // Mobile menu functionality
-        const mobileMenuBtn = document.getElementById('mobile-menu-btn');
-        const mobileOverlay = document.getElementById('mobile-overlay');
-        const sidebar = document.getElementById('sidebar');
-        let isMenuOpen = false;
+      // Mobile sidebar toggle
+      const mobileBtn = document.getElementById('mobile-menu-btn');
+      const sidebar = document.getElementById('sidebar');
+      const overlay = document.getElementById('mobile-overlay');
+      function openSidebar()  { sidebar.classList.remove('-translate-x-full'); overlay.classList.remove('hidden'); }
+      function closeSidebar() { sidebar.classList.add('-translate-x-full');    overlay.classList.add('hidden'); }
+      mobileBtn?.addEventListener('click', openSidebar);
+      overlay?.addEventListener('click', closeSidebar);
 
-        function toggleMobileMenu() {
-            isMenuOpen = !isMenuOpen;
-            if (isMenuOpen) {
-                sidebar.classList.remove('-translate-x-full');
-                sidebar.classList.add('translate-x-0');
-                mobileOverlay.classList.remove('hidden');
-                document.body.style.overflow = 'hidden';
-            } else {
-                sidebar.classList.add('-translate-x-full');
-                sidebar.classList.remove('translate-x-0');
-                mobileOverlay.classList.add('hidden');
-                document.body.style.overflow = '';
-            }
-        }
-
-        mobileMenuBtn.addEventListener('click', toggleMobileMenu);
-        mobileOverlay.addEventListener('click', toggleMobileMenu);
-
-        // Close mobile menu when clicking on a sidebar link
-        sidebar.addEventListener('click', (e) => {
-            if (e.target.tagName === 'A' && window.innerWidth < 1024) {
-                toggleMobileMenu();
-            }
-        });
-
-        // Close mobile menu on resize to desktop
-        window.addEventListener('resize', () => {
-            if (window.innerWidth >= 1024 && isMenuOpen) {
-                toggleMobileMenu();
-            }
-        });
-
-        
-        // Auto-dismiss alerts after 5 seconds
-        setTimeout(() => {
-            const alerts = document.querySelectorAll('.alert');
-            alerts.forEach(alert => {
-                alert.style.transition = 'opacity 0.5s ease';
-                alert.style.opacity = '0';
-                setTimeout(() => alert.remove(), 500);
-            });
-        }, 5000);
-        
-        // Real-time status updates
-        async function updateSystemStatus() {
-            try {
-                const response = await fetch('/api/status');
-                const status = await response.json();
-                
-                // Update account count in sidebar
-                const accountBadge = document.querySelector('.sidebar-item:nth-child(2) .bg-blue-100');
-                if (accountBadge && status.total_accounts !== undefined) {
-                    accountBadge.textContent = status.total_accounts;
-                }
-                
-                // Update status indicator
-                const statusDot = document.querySelector('.status-indicator');
-                if (status.system_status === 'running') {
-                    statusDot.className = 'status-indicator w-3 h-3 bg-green-400 rounded-full';
-                } else {
-                    statusDot.className = 'status-indicator w-3 h-3 bg-red-400 rounded-full';
-                }
-            } catch (error) {
-                console.error('Failed to update system status:', error);
-            }
-        }
-        
-        // Update status every 30 seconds
-        setInterval(updateSystemStatus, 30000);
-        updateSystemStatus(); // Initial load
-        
-        // Dark mode functionality
-        const darkModeToggle = document.getElementById('darkModeToggle');
-        const html = document.documentElement;
-        const icon = darkModeToggle.querySelector('i');
-        
-        // Check for saved dark mode preference or default to light
-        const currentTheme = localStorage.getItem('theme') || 'light';
-        html.classList.remove('light', 'dark');
-        html.classList.add(currentTheme);
-        updateDarkModeIcon(currentTheme);
-        
-        darkModeToggle.addEventListener('click', () => {
-            const isDark = html.classList.contains('dark');
-            const newTheme = isDark ? 'light' : 'dark';
-            
-            html.classList.remove('light', 'dark');
-            html.classList.add(newTheme);
-            localStorage.setItem('theme', newTheme);
-            updateDarkModeIcon(newTheme);
-        });
-        
-        function updateDarkModeIcon(theme) {
-            if (theme === 'dark') {
-                icon.classList.remove('fa-moon');
-                icon.classList.add('fa-sun');
-            } else {
-                icon.classList.remove('fa-sun');
-                icon.classList.add('fa-moon');
-            }
-        }
+      // Dark mode (persisted)
+      const darkBtn = document.getElementById('darkModeToggle');
+      const root = document.documentElement;
+      function applyTheme(t) { root.classList.toggle('dark', t === 'dark'); }
+      applyTheme(localStorage.getItem('theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+      darkBtn?.addEventListener('click', () => {
+        const next = root.classList.contains('dark') ? 'light' : 'dark';
+        localStorage.setItem('theme', next); applyTheme(next);
+      });
     </script>
-    
     {% block extra_scripts %}{% endblock %}
 </body>
 </html>

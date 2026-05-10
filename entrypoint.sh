@@ -22,13 +22,10 @@ echo "User gid:    $(id -g appuser)"
 echo "-------------------------------------"
 
 # Create all necessary directories
-mkdir -p /app/data /app/logs /app/instance /app/.wdm
+mkdir -p /app/data /app/logs /app/instance
 
 # Set ownership of all app directories
 chown -R appuser:appuser /app
-
-echo "SOCKS5 proxy configured for on-demand startup (security improvement)"
-echo "Proxy will start automatically when CAPTCHA solving is needed"
 
 # Get version from app.py
 VERSION=$(python3 -c "import sys; sys.path.insert(0, '/app'); from app import __version__; print(__version__)" 2>/dev/null || echo "Unknown")

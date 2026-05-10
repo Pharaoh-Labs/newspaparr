@@ -1,88 +1,44 @@
-# Use Python 3.11 slim image
-FROM python:3.11-slim
+# Python 3.13 slim — aligned with the venv dev runtime
+FROM python:3.13-slim
 
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV DEBIAN_FRONTEND=noninteractive
-ENV WDM_LOCAL=1
-ENV WDM_LOG_LEVEL=0
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    wget \
-    gnupg \
-    unzip \
-    curl \
-    ca-certificates \
-    gosu \
-    nano \
-    xvfb \
-    xauth \
-    libglib2.0-0 \
-    libnss3 \
-    libfontconfig1 \
-    tesseract-ocr \
-    tesseract-ocr-eng \
-    # Dependencies for Chrome
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libatspi2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libgbm1 \
-    libgtk-3-0 \
-    libnspr4 \
-    libx11-xcb1 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxkbcommon0 \
-    libxrandr2 \
-    libxss1 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Chromium (supports both AMD64 and ARM64)
-RUN apt-get update \
-    && apt-get install -y chromium chromium-driver \
+# Capture flow needs a real Chrome (rendered into Xvfb, streamed via x11vnc
+# through websockify to the user's browser). Renewals are HTTP-only and don't
+# touch the browser at all.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl gosu \
+        chromium chromium-driver \
+        xvfb x11vnc \
+        # Chromium runtime libs (needed by chromium even when not displayed)
+        libnss3 libgbm1 libasound2 libxss1 libxshmfence1 \
     && rm -rf /var/lib/apt/lists/* \
-    # Create symlinks for compatibility
-    && ln -s /usr/bin/chromium /usr/bin/google-chrome || true \
-    && ln -s /usr/bin/chromium /usr/bin/google-chrome-stable || true
+    && ln -s /usr/bin/chromium /usr/bin/google-chrome 2>/dev/null || true
 
-# Set work directory
 WORKDIR /app
 
-# Copy requirements first for better caching
 COPY requirements.txt .
-
-# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Create non-root user for security (will be updated by entrypoint)
+# Non-root user; UID adjusted at runtime by entrypoint
 RUN groupadd -g 1000 appuser && useradd -u 1000 -g appuser -m appuser
 
-# Copy application code
 COPY . .
-
-# Set up entrypoint script
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Create directories for data persistence and webdriver cache
-RUN mkdir -p /app/data /app/logs /app/.wdm
-
-# Set HOME directory for webdriver cache
+RUN mkdir -p /app/data /app/logs
 ENV HOME=/app
 
-# Expose port
-EXPOSE 1851
+# Ports
+#   1851 — web dashboard
+#   6100 — websockify (noVNC bridge for the in-dashboard capture flow)
+EXPOSE 1851 6100
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:1851/api/status || exit 1
 
-# Set entrypoint and default command
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["python3", "-m", "gunicorn", "--bind", "0.0.0.0:1851", "--workers", "1", "--timeout", "600", "wsgi:app"]
+CMD ["python3", "-m", "gunicorn", "--bind", "0.0.0.0:1851", "--workers", "1", "--timeout", "300", "wsgi:app"]

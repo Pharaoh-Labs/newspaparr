@@ -1,174 +1,74 @@
 {% extends "base.html" %}
 
 {% block title %}{{ title }} - Newspaparr{% endblock %}
-
 {% block page_title %}{{ title }}{% endblock %}
-{% block page_description %}Configure library authentication and settings{% endblock %}
 
 {% block content %}
 <div class="max-w-2xl mx-auto">
-    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg">
-        <div class="px-8 py-6 border-b border-gray-200 dark:border-gray-600">
-            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">{{ title }}</h2>
-            <p class="text-gray-600 dark:text-gray-400 mt-1">Enter your library's login details and configuration</p>
-        </div>
-        
-        <form method="POST" class="px-8 py-6">
+    <div class="card p-6">
+        <form method="POST" class="space-y-6">
             {{ form.hidden_tag() }}
-            
-            <!-- Library Name -->
-            <div class="mb-6">
-                {{ form.name.label(class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2") }}
-                {{ form.name(class="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500") }}
-                {% if form.name.errors %}
-                    <p class="mt-2 text-sm text-red-600">{{ form.name.errors[0] }}</p>
-                {% endif %}
-                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Friendly name for this library (e.g., "My Local Library")</p>
-            </div>
-            
-            <!-- Library Type -->
-            <div class="mb-6">
-                {{ form.type.label(class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2") }}
-                {{ form.type(class="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500") }}
-                {% if form.type.errors %}
-                    <p class="mt-2 text-sm text-red-600">{{ form.type.errors[0] }}</p>
-                {% endif %}
-                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Choose the type that best matches your library system</p>
-            </div>
-            
-            <!-- URL Configuration Guide -->
-            <div class="mb-6">
-                <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
-                    <div class="flex items-start">
-                        <i class="fas fa-link text-blue-600 mt-1 mr-3"></i>
+
+            <div>
+                <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-4">Library</h3>
+                <div class="space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <h5 class="font-medium text-blue-900 dark:text-blue-200 mb-2">Finding Your Library URLs</h5>
-                            <p class="text-sm text-blue-800 dark:text-blue-200 mb-3">
-                                You'll need to provide the specific URLs your library uses to access NYT and WSJ. These are usually found on your library's digital resources page.
-                            </p>
-                            <div class="text-sm text-blue-800 dark:text-blue-200 space-y-2">
-                                <p><strong>How to find these URLs:</strong></p>
-                                <ol class="list-decimal list-inside space-y-1 ml-4">
-                                    <li>Log into your library's website</li>
-                                    <li>Navigate to digital resources or databases</li>
-                                    <li>Find the links for New York Times and Wall Street Journal</li>
-                                    <li>Copy the full URL for each newspaper</li>
-                                </ol>
-                            </div>
-                            <div class="mt-3 p-3 bg-blue-100 dark:bg-blue-800 rounded-md">
-                                <p class="text-xs text-blue-800 dark:text-blue-200 font-medium">Common URL patterns:</p>
-                                <div class="text-xs text-blue-700 dark:text-blue-300 mt-1 space-y-1">
-                                    <div><strong>NYT:</strong> <code>https://yourlibrary.idm.oclc.org/login?url=https://ezmyaccount.nytimes.com/corpgrouppass/redir</code></div>
-                                    <div><strong>WSJ:</strong> <code>https://yourlibrary.idm.oclc.org/login?url=https://yourlibrary.idm.oclc.org/loggedin/wsj.html</code></div>
-                                </div>
-                            </div>
+                            {{ form.name.label(class="label") }}
+                            {{ form.name(class="input", placeholder="e.g. Baldwin Public Library") }}
+                            {% if form.name.errors %}<p class="mt-1 text-xs text-red-600">{{ form.name.errors[0] }}</p>{% endif %}
                         </div>
+                        <div>
+                            {{ form.type.label(class="label") }}
+                            {{ form.type(class="input") }}
+                        </div>
+                    </div>
+                    <div>
+                        {{ form.homepage.label(class="label") }}
+                        {{ form.homepage(class="input", placeholder="https://example.org") }}
                     </div>
                 </div>
             </div>
 
-            <!-- NYT URL -->
-            <div class="mb-6">
-                {{ form.nyt_url.label(class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2") }}
-                {{ form.nyt_url(class="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500", placeholder="https://yourlibrary.idm.oclc.org/login?url=https://ezmyaccount.nytimes.com/corpgrouppass/redir") }}
-                {% if form.nyt_url.errors %}
-                    <p class="mt-2 text-sm text-red-600">{{ form.nyt_url.errors[0] }}</p>
-                {% endif %}
-                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ form.nyt_url.description }}</p>
-            </div>
-            
-            <!-- WSJ URL -->
-            <div class="mb-6">
-                {{ form.wsj_url.label(class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2") }}
-                {{ form.wsj_url(class="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500", placeholder="https://yourlibrary.idm.oclc.org/login?url=https://yourlibrary.idm.oclc.org/loggedin/wsj.html") }}
-                {% if form.wsj_url.errors %}
-                    <p class="mt-2 text-sm text-red-600">{{ form.wsj_url.errors[0] }}</p>
-                {% endif %}
-                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ form.wsj_url.description }}</p>
-            </div>
-            
-            <!-- Library Homepage -->
-            <div class="mb-6">
-                {{ form.homepage.label(class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2") }}
-                {{ form.homepage(class="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500", placeholder="https://yourlibrary.org") }}
-                {% if form.homepage.errors %}
-                    <p class="mt-2 text-sm text-red-600">{{ form.homepage.errors[0] }}</p>
-                {% endif %}
-                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ form.homepage.description }}</p>
-            </div>
-            
-            <!-- Default Renewal Hours -->
-            <div class="mb-6">
-                {{ form.default_renewal_hours.label(class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2") }}
-                {{ form.default_renewal_hours(class="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500") }}
-                {% if form.default_renewal_hours.errors %}
-                    <p class="mt-2 text-sm text-red-600">{{ form.default_renewal_hours.errors[0] }}</p>
-                {% endif %}
-                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Default renewal interval for accounts using this library (24 hours recommended)</p>
-            </div>
-            
-            <!-- Active Status -->
-            <div class="mb-6">
-                <div class="flex items-center">
-                    {{ form.active(class="h-4 w-4 text-orange-600 focus:ring-orange-500 border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded") }}
-                    {{ form.active.label(class="ml-2 block text-sm text-gray-900 dark:text-white") }}
+            <div class="border-t border-gray-200 dark:border-gray-700 pt-6">
+                <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-4">NYT access</h3>
+                <div>
+                    {{ form.nyt_url.label(class="label") }}
+                    {{ form.nyt_url(class="input", placeholder="https://library.idm.oclc.org/login?url=...") }}
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">The library-provided URL that links you out to the NYT IP-pass redemption.</p>
+                    {% if form.nyt_url.errors %}<p class="mt-1 text-xs text-red-600">{{ form.nyt_url.errors[0] }}</p>{% endif %}
                 </div>
-                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Only active libraries can be used for new accounts</p>
             </div>
-            
-            <!-- Custom Configuration -->
-            <div class="mb-8">
-                <details class="mb-4">
-                    <summary class="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer hover:text-gray-900 dark:hover:text-white">Advanced Configuration (Optional)</summary>
-                    <div class="mt-4">
-                        {{ form.custom_config.label(class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2") }}
-                        {{ form.custom_config(class="mt-1 block w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500", rows="4", placeholder='{"timeout": 60, "retries": 3}') }}
-                        {% if form.custom_config.errors %}
-                            <p class="mt-2 text-sm text-red-600">{{ form.custom_config.errors[0] }}</p>
-                        {% endif %}
-                        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ form.custom_config.description }}</p>
+
+            <div class="border-t border-gray-200 dark:border-gray-700 pt-6">
+                <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-4">Defaults</h3>
+                <div class="space-y-4">
+                    <div>
+                        {{ form.default_renewal_hours.label(class="label") }}
+                        {{ form.default_renewal_hours(class="input") }}
+                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Renewals run at this interval + 1 minute. Accounts can override.</p>
                     </div>
-                </details>
+                    <label class="flex items-center gap-3">
+                        {{ form.active(class="h-4 w-4 rounded text-brand-600 focus:ring-brand-500") }}
+                        <span class="text-sm">Library is active</span>
+                    </label>
+                </div>
             </div>
-            
-            <!-- Action Buttons -->
-            <div class="flex items-center justify-between pt-6 border-t border-gray-200 dark:border-gray-600">
-                <a href="{{ url_for('libraries') }}" class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500">
-                    <i class="fas fa-arrow-left mr-2"></i>
-                    Back to Libraries
-                </a>
-                
-                <button type="submit" class="inline-flex items-center px-6 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 shadow-sm">
-                    <i class="fas fa-save mr-2"></i>
-                    {{ 'Update Library' if library else 'Add Library' }}
-                </button>
+
+            <details class="border-t border-gray-200 dark:border-gray-700 pt-6">
+                <summary class="text-sm font-semibold text-gray-700 dark:text-gray-300 cursor-pointer">Advanced</summary>
+                <div class="mt-4">
+                    {{ form.custom_config.label(class="label") }}
+                    {{ form.custom_config(class="input font-mono text-xs", rows="4", placeholder='{"key": "value"}') }}
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Optional JSON for adapter-specific tuning.</p>
+                </div>
+            </details>
+
+            <div class="flex items-center justify-end gap-2 pt-2">
+                <a href="{{ url_for('libraries') }}" class="btn btn-secondary">Cancel</a>
+                <button type="submit" class="btn btn-primary">{% if library %}Save{% else %}Create{% endif %}</button>
             </div>
         </form>
-    </div>
-    
-    <!-- Help Section -->
-    <div class="mt-8 bg-blue-50 dark:bg-blue-900/20 rounded-lg p-6">
-        <h3 class="text-lg font-medium text-blue-900 dark:text-blue-200 mb-4">
-            <i class="fas fa-info-circle mr-2"></i>
-            Library Setup Guide
-        </h3>
-        
-        <div class="space-y-4 text-sm text-blue-800 dark:text-blue-200">
-            <div>
-                <h4 class="font-medium mb-1 dark:text-blue-100">Finding Your Library Login URL</h4>
-                <p>Look for the login page where you normally enter your library card number and PIN. This is usually found on your library's website under "Login", "My Account", or "Digital Resources".</p>
-            </div>
-            
-            <div>
-                <h4 class="font-medium mb-1 dark:text-blue-100">OCLC Libraries</h4>
-                <p>If you see "oclc.org" in the URL when logging in, choose "OCLC Library" as the type.</p>
-            </div>
-            
-            <div>
-                <h4 class="font-medium mb-1 dark:text-blue-100">Renewal Interval</h4>
-                <p>24 hours is recommended for most libraries. This means your account will automatically renew its library pass every 24 hours.</p>
-            </div>
-        </div>
     </div>
 </div>
 {% endblock %}

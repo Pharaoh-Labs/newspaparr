@@ -3,38 +3,23 @@ services:
     image: ghcr.io/egyptiangio/newspaparr:latest
     container_name: newspaparr
     ports:
-      - "1851:1851"           # Web interface
-      - "3333:3333"           # SOCKS5 proxy for CAPTCHA solving
+      - "1851:1851"   # Web interface
+      - "6100:6100"   # noVNC bridge (used by the in-dashboard capture flow)
     volumes:
-      - ./data:/app/data      # Persistent data storage
+      - ./data:/app/data   # Persistent data + captured Chrome profiles
     restart: unless-stopped
     environment:
-      # Basic Configuration
-      - TZ=America/New_York   # Your timezone
-      - PUID=1000             # User ID
-      - PGID=1000             # Group ID
-      
-      # Anti-Detection Settings
-      - RENEWAL_SPEED=normal        # Interaction speed: fast, normal, slow
-      
-      # User Agent Configuration (CRITICAL: Must be CapSolver-supported for DataDome)
-      # Supported versions: Chrome/137, 136, 135, 134, 133, 132 (NO OTHER VERSIONS WILL WORK)
-      # DO NOT CHANGE unless you verify with https://docs.capsolver.com/en/guide/captcha/datadome/
-      - CAPSOLVER_USER_AGENT=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36
-      
-      # CAPTCHA Solving (Optional but recommended for NYT/WSJ)
-      - CAPSOLVER_API_KEY=YOUR_CAPSOLVER_API_KEY_HERE    # Get from capsolver.com
-      - PROXY_HOST=your-external-hostname-or-ip.com      # Your external IP/hostname
-      - SOCKS5_PROXY_PORT=3333                           # Port for SOCKS5 proxy
-      
-      # Browser Proxy Settings (Use if DataDome blocks direct connections)
-      - USE_BROWSER_PROXY=false                          # Set to true to route browser through proxy
-      - PROXY_PORT=3333                                  # Proxy port for browser connections
-      
-      # Optional: Debug Mode
-      - RENEWAL_DEBUG=false         # Set to true for verbose logging
-      - DEBUG_SCREENSHOTS=false     # Set to true to save screenshots
-      - SCREENSHOT_RETENTION=100    # Number of screenshot attempts to keep (default: 100)
-      
-      # Optional: Reverse Proxy Settings
-      - BEHIND_PROXY=false          # Set to true if running behind nginx/traefik/etc
+      - TZ=America/New_York
+      - PUID=1000
+      - PGID=1000
+
+      # Optional: notifications via Apprise. Comma-separated URLs.
+      # See https://github.com/caronc/apprise for the URL formats supported by
+      # ~80 services (Discord, ntfy, Telegram, Slack, mailto, gotify, etc.)
+      # - APPRISE_URLS=ntfy://ntfy.sh/your-topic
+
+      # Optional: verbose logging
+      # - DEBUG_MODE=false
+
+      # Optional: behind a reverse proxy
+      # - BEHIND_PROXY=true

@@ -1,281 +1,158 @@
-# Newspaparr 📰
+# Newspaparr
 
-Automated library card renewal system for digital newspaper access. Keep your New York Times and Wall Street Journal access active through your library's digital passes.
+Self-hosted automation for keeping your library-provided **New York Times** digital pass active. One capture of your NYT session, then daily renewals that finish in about a second each.
 
-![Version](https://img.shields.io/badge/version-0.5.7-blue)
+![Version](https://img.shields.io/badge/version-1.1.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Docker](https://img.shields.io/badge/docker-ready-blue)
 
-## ✨ Features
+## What it does
 
-- 🔄 **Automated Daily Renewals** - Set it and forget it
-- 📚 **Multi-Library Support** - Use your library-provided URLs
-- 📰 **NYT & WSJ Support** - Access major newspapers through your library
-- 🤖 **CAPTCHA Solving** - Handles DataDome challenges automatically
-- 🌐 **Web Dashboard** - Modern, responsive interface
-- 📊 **Smart Scheduling** - Learns renewal patterns and optimizes timing
-- 🔍 **Detailed Logging** - Track all renewal attempts and outcomes
-- 🐳 **Docker Deployment** - Simple containerized setup
+Many public libraries offer free NYT digital access through OCLC EZproxy redemption pages. Each redemption gives you 24–72 hours, so without automation you'd be doing a manual login every day. Newspaparr does the renewal for you on a schedule.
 
-## 🚀 Quick Start
+The renewal flow is **HTTP-only** — Newspaparr POSTs your library card credentials to your library's EZproxy endpoint, follows the redirect chain into NYT, and reads the activation response. No headless browser, no proxy, no CAPTCHA solver. A single renewal takes ~1 second.
 
-### Prerequisites
+The hard part is the *initial* NYT login — NYT actively detects automation. Newspaparr solves this with a **one-time capture**: you log into NYT inside an embedded Chrome that streams to your dashboard via noVNC. The captured cookies are then replayed by every subsequent renewal. Sessions typically last ~30 days; re-capture when renewals start failing.
 
-- Docker and Docker Compose installed
-- Active library card with digital newspaper access
-- Free accounts at NYT and/or WSJ (without paid subscriptions)
-- (Optional) CapSolver account for CAPTCHA solving
+## Features
 
-### Installation
+- **HTTP-only renewals** — ~1s per account, no browser at renewal time
+- **Library-card auth only** — your NYT password is never stored, only captured cookies
+- **One-time session capture** — log into NYT once via an in-dashboard browser
+- **Apprise notifications** — ~80 services (Discord, ntfy, Telegram, Slack, mailto, …) on renewal failure or recovery
+- **Multi-account** — capture each household member's NYT session independently
+- **Scheduling** — renewals automatically rescheduled around the next pass expiration
+- **Activity log** — every attempt recorded with status, message, and duration
 
-1. **Create a docker-compose.yml file**
-   ```bash
-   # Download the example configuration
-   wget https://raw.githubusercontent.com/egyptiangio/newspaparr/main/docker-compose.example.yml -O docker-compose.yml
-   
-   # Or create it manually from the example below
-   ```
+## Quick start
 
-2. **Configure your settings**
-   ```bash
-   # Edit docker-compose.yml with your library and newspaper settings
-   nano docker-compose.yml
-   ```
+### Requirements
 
-3. **Start the container**
-   ```bash
-   docker-compose up -d
-   ```
+- Docker + Docker Compose
+- A library card at a library that offers NYT digital access via EZproxy
+- An NYT.com account (free, no paid subscription needed)
 
-4. **Access the web interface**
-   - Open http://localhost:1851
-   - Add your library configuration
-   - Add newspaper accounts
-   - Enable automated renewals
+### Run it
 
-## 📋 Requirements
+```bash
+# Grab the example compose file
+curl -fsSL https://raw.githubusercontent.com/egyptiangio/newspaparr/main/docker-compose.example.yml -o docker-compose.yml
 
-### Library Requirements
-- Must provide digital newspaper passes
-- Library must offer digital newspaper passes
-- Valid library card number and PIN
+# Start
+docker-compose up -d
 
-### Newspaper Accounts
-- Existing email accounts at target newspapers
-- Accounts should NOT have active paid subscriptions
-- Will be linked to library passes automatically
+# Open the dashboard
+open http://localhost:1851
+```
 
-### CAPTCHA Solving (Optional but Recommended)
-- Account at [CapSolver](https://capsolver.com) for when NYT/WSJ show CAPTCHAs
-- Small credit balance (~$3 per 1000 CAPTCHAs)
-- **Port 3333 must be forwarded** on your router for external access
-- External IP or dynamic DNS configured (e.g., your-home.duckdns.org)
+### First-time setup
 
-## 🔧 Configuration
+1. **Add your library** (Libraries → Add library). Enter the EZproxy URL your library exposes for NYT redemption. Newspaparr ships defaults for OCLC/EZproxy; most libraries use this pattern.
+2. **Add an account** (Accounts → Add account). Enter a name, your library card number, and PIN.
+3. **Capture your NYT session.** Click the key icon next to the new account. A live Chrome window opens in your browser. Log into NYT normally, land on your account page, then click *Save & close*. Cookies are encrypted with `SECRET_KEY` and stored in `data/`.
+4. **Done.** The first renewal runs immediately; subsequent renewals are scheduled around the pass expiration.
 
-### Minimal docker-compose.yml
+## Configuration
+
+All configuration is environment variables in `docker-compose.yml`. Everything is optional except the basics.
 
 ```yaml
 services:
   newspaparr:
     image: ghcr.io/egyptiangio/newspaparr:latest
-    container_name: newspaparr
     ports:
-      - "1851:1851"           # Web interface
-      - "3333:3333"           # SOCKS5 proxy for CAPTCHA solving
+      - "1851:1851"   # Web dashboard
+      - "6100:6100"   # noVNC bridge (only used during the capture flow)
     volumes:
-      - ./data:/app/data      # Persistent data storage
-    restart: unless-stopped
+      - ./data:/app/data
     environment:
-      # Basic Configuration
       - TZ=America/New_York
       - PUID=1000
       - PGID=1000
-      
-      # Anti-Detection Settings
-      - RENEWAL_SPEED=normal        # Interaction speed: fast, normal, slow
-      
-      # CAPTCHA Solving (For NYT/WSJ bot detection)
-      - CAPSOLVER_API_KEY=YOUR_API_KEY_HERE
-      - PROXY_HOST=your-hostname.com    # Your external IP/hostname
-      - SOCKS5_PROXY_PORT=3333
-      
-      # Optional: Debug Mode
-      - RENEWAL_DEBUG=false         # Set to true for verbose logging
+
+      # Optional: notifications via Apprise.
+      # https://github.com/caronc/apprise — supports ~80 services.
+      # Comma-separated. Fires on renewal failure and on recovery from a
+      # previous failure (not on every attempt).
+      # - APPRISE_URLS=ntfy://ntfy.sh/your-topic,discord://webhook_id/webhook_token
+
+      # Optional: verbose logging
+      # - DEBUG_MODE=true
+
+      # Optional: behind a reverse proxy that sets X-Forwarded-* headers
+      # - BEHIND_PROXY=true
+    restart: unless-stopped
 ```
 
-### CAPTCHA Setup
+`SECRET_KEY` is auto-generated and persisted to `data/secret_key` (mode 0600) on first boot. Set it explicitly via the env var if you want to manage it yourself.
 
-When NYT or WSJ detect bot activity and show CAPTCHAs, Newspaparr automatically handles them:
+## How a renewal works
 
-1. **Port Forwarding Required**: Forward port 3333 on your router to your Docker host
-   - External port: 3333 → Internal port: 3333
-   - This allows the CAPTCHA service to connect through your home IP
+1. **Library auth.** Newspaparr GETs your library's EZproxy URL, parses the login form, and POSTs `{user, pass, url}`.
+2. **Redirect chain.** httpx follows the redirects: library auth → EZproxy proxy URL → NYT redemption page.
+3. **Cookie injection.** The captured NYT session cookies (`datadome`, `NYT-S`, etc.) are loaded onto the request so NYT recognizes you.
+4. **State classification.** The final response is classified into one of:
+   - `RENEWED` — server-side `isProvisionallyLoggedIn:true` flag or success copy detected
+   - `NO_SESSION` — no captured cookies; capture an initial session
+   - `SESSION_EXPIRED` — cookies present but rejected; re-capture
+   - `LIBRARY_AUTH_FAILED` — library card / PIN wrong
+   - `NETWORK_ERROR` — couldn't reach the library or NYT
+   - `UNEXPECTED` — something else; details in the activity log
 
-2. **On-Demand SOCKS5 Proxy**:
-   - Proxy starts automatically only when CAPTCHA solving is needed
-   - Shuts down immediately after solving (not always running)
-   - Uses randomized credentials for each renewal session
-   - Credentials expire and rotate automatically for security
+## Architecture (code map)
 
-3. **Configuration**:
-```yaml
-environment:
-  # CapSolver API key from capsolver.com
-  - CAPSOLVER_API_KEY=YOUR_API_KEY_HERE
-  
-  # Your external hostname/IP (must be accessible from internet)
-  - PROXY_HOST=your-hostname.com
-  
-  # SOCKS5 proxy port (must match port forwarding)
-  - SOCKS5_PROXY_PORT=3333
+```
+app.py             Flask routes, scheduler, models, forms (~1100 lines)
+renewer.py         The HTTP-only renewal flow (~240 lines, replaces the old selenium pipeline)
+cookie_jar.py      Linux Chrome v10 cookie decrypt (PBKDF2 'peanuts'/'saltysalt')
+capture_session.py Xvfb + Chromium + x11vnc + websockify lifecycle for the in-dashboard capture flow
+notify.py          Apprise wrapper — fires on failure, on recovery
+icons.py           Inline-SVG Heroicons helper (drops the Font Awesome CDN)
+paths.py           Single source of truth for filesystem paths
+templates/         Jinja templates, Tailwind classes
+static/css/app.css Built Tailwind bundle (no CDN at runtime)
+scripts/build-css.sh   Re-build static/css/app.css after editing classes
 ```
 
-**Security Note**: The proxy only runs during CAPTCHA solving (typically 30-60 seconds) with temporary credentials that are invalidated immediately after use.
+## Activity & troubleshooting
 
-## 📖 How It Works
+- **Activity tab** in the dashboard shows every renewal attempt with status, duration, and the full final-page URL.
+- **Manual renewal** — click the refresh icon next to any account. Useful right after capturing a session.
+- **Debug logs** — `docker-compose logs -f newspaparr` or `data/logs/`.
 
-1. **Library Authentication**: Logs into your library's digital services
-2. **Pass Renewal**: Navigates to newspaper pass section
-3. **Account Linking**: Connects your newspaper account to the library pass
-4. **Smart Detection**: Verifies successful renewal
-5. **Scheduling**: Plans next renewal based on expiration
+Common failures:
 
-### Supported Libraries
+| Symptom | Likely cause |
+|---|---|
+| `LIBRARY_AUTH_FAILED` | Card number / PIN wrong, or the library EZproxy URL is stale |
+| `SESSION_EXPIRED` | NYT cookies aged out (~30 days). Re-capture the session. |
+| `NO_SESSION` | Account was added but never had a session captured. Click the key icon. |
+| `NETWORK_ERROR` | Library server is down, or DNS / firewall blocked the request |
 
-- Libraries with newspaper pass programs
-- Any library-provided newspaper access URL
-- Custom adapters can be added for special cases
-
-### Renewal States
-
-- ✅ **Success**: Access renewed and verified
-- ⚠️ **Success with Warning**: Account has direct subscription
-- ❌ **Failure**: Unable to renew (check logs for details)
-
-## 🛠️ Management
-
-### View Logs
-```bash
-docker-compose logs -f newspaparr
-```
-
-### Manual Renewal
-Access http://localhost:1851 and click "Renew Now" for any account
-
-### Backup Data
-```bash
-cp -r ./data ./data-backup-$(date +%Y%m%d)
-```
-
-### Update to Latest
-```bash
-docker-compose pull
-docker-compose up -d
-```
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-**"Library login failed"**
-- Verify library card number and PIN
-- Check if library requires special authentication
-- Try logging in manually on library website
-
-**"CAPTCHA detected but not solved"**
-- Ensure CapSolver API key is valid
-- Check credit balance at capsolver.com
-- Verify port 3333 is accessible externally
-- Confirm PROXY_HOST is correct
-
-**"NYT/WSJ activation failed"**
-- Account may already have active subscription
-- Check device limit on newspaper account
-- Try clearing browser data and retrying
-
-**"Permission denied" errors**
-```bash
-# Fix permissions
-sudo chown -R $(id -u):$(id -g) ./data
-chmod -R 755 ./data
-```
-
-### Debug Mode
-
-Enable detailed logging and screenshots:
-
-```yaml
-environment:
-  - LOG_LEVEL=DEBUG
-  - DEBUG_SCREENSHOTS=true
-  - SCREENSHOT_RETENTION=100    # Number of screenshot attempts to keep (default: 100)
-```
-
-Screenshots will be saved to `./data/screenshots/`
-
-### Reverse Proxy Configuration
-
-If running behind a reverse proxy (nginx, Traefik, Caddy, etc.):
-
-```yaml
-environment:
-  - BEHIND_PROXY=true    # Enable proxy header processing
-```
-
-This ensures proper handling of X-Forwarded headers from your reverse proxy.
-
-## 📊 API Endpoints
-
-The web interface exposes several API endpoints:
-
-- `GET /api/accounts` - List all accounts
-- `POST /api/accounts` - Add new account
-- `PUT /api/accounts/{id}` - Update account
-- `DELETE /api/accounts/{id}` - Delete account
-- `POST /api/accounts/{id}/renew` - Trigger manual renewal
-- `GET /api/logs` - Retrieve renewal logs
-- `GET /health` - Health check endpoint
-
-## 🤝 Contributing
-
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-### Development Setup
+## Development
 
 ```bash
-# Clone your fork
-git clone https://github.com/YOUR_USERNAME/newspaparr.git
+git clone https://github.com/egyptiangio/newspaparr.git
 cd newspaparr
-
-# Build and run
-docker-compose build
-docker-compose up
+./dev.sh           # creates .venv on first run, then gunicorn --reload on :1851
 ```
 
-## 📝 License
+Editing Tailwind classes? Re-run `./scripts/build-css.sh` to rebuild `static/css/app.css`. The script auto-fetches the standalone tailwindcss binary on first run (no npm).
 
-This project is licensed under the MIT License - see [LICENSE](LICENSE) file for details.
+## What this is not
 
-## ⚠️ Disclaimer
+- **Not a paywall bypass.** It only renews access that your library has *already* given you.
+- **Not a NYT scraper.** It just keeps a normal authenticated session alive.
+- **Not affiliated** with The New York Times or any library system.
 
-This tool automates the library card renewal process. Users are responsible for:
-- Complying with their library's terms of service
-- Respecting newspaper subscription terms
-- Using the tool responsibly and ethically
+## Versioning
 
-## 🆘 Support
+- **v1.1.0** — current. HTTP-only renewer, NYT-only, captured-session auth, Apprise notifications, static Tailwind, inline SVG icons.
+- **v1.0.0** — first cookie-bridge release; WSJ retired.
+- **v0.x** — selenium + undetected-chromedriver + CAPTCHA solving era.
 
-- 🐛 [Report Issues](https://github.com/yourusername/newspaparr/issues)
-- 💡 [Request Features](https://github.com/yourusername/newspaparr/discussions)
-- 📖 [Documentation](https://github.com/yourusername/newspaparr/wiki)
+See `CHANGELOG.md` (when present) for full history.
 
-## 🙏 Acknowledgments
+## License
 
-- Built with Flask, Selenium, and undetected-chromedriver
-- CAPTCHA solving powered by CapSolver
-- UI components from Tailwind CSS
-
----
-
-**Note**: This project is not affiliated with The New York Times, Wall Street Journal, or any library system. It's an independent tool to help users maintain their legitimate library-provided newspaper access.
+MIT. See [LICENSE](LICENSE).

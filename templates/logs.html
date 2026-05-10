@@ -1,742 +1,140 @@
 {% extends "base.html" %}
 
-{% block title %}Activity Logs - Newspaparr{% endblock %}
-{% block page_title %}Activity Logs{% endblock %}
-{% block page_description %}Monitor renewal history and troubleshoot issues{% endblock %}
+{% block title %}Activity - Newspaparr{% endblock %}
+{% block page_title %}Activity{% endblock %}
 
 {% block content %}
-<!-- Filter Controls -->
-<div class="mb-6">
-    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-        <div class="flex items-center justify-between mb-4">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Filter Logs</h3>
-            <div class="flex gap-2">
-                <button onclick="refreshLogs()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-                    <i class="fas fa-sync-alt mr-2"></i>Refresh
-                </button>
-                <button onclick="clearAllLogs()" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-                    <i class="fas fa-trash-alt mr-2"></i>Clear All Logs
-                </button>
-            </div>
-        </div>
-        
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <!-- Account Filter -->
-            <div>
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Account</label>
-                <select id="account-filter" class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                    <option value="">All Accounts</option>
-                    <!-- Will be populated by JavaScript -->
-                </select>
-            </div>
-            
-            <!-- Status Filter -->
-            <div>
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Status</label>
-                <select id="status-filter" class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                    <option value="">All Statuses</option>
-                    <option value="success">Success</option>
-                    <option value="warning">Success with warning</option>
-                    <option value="failed">Failed</option>
-                </select>
-            </div>
-            
-            <!-- Date Range -->
-            <div>
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Date Range</label>
-                <select id="date-filter" class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                    <option value="24h">Last 24 Hours</option>
-                    <option value="7d">Last 7 Days</option>
-                    <option value="30d">Last 30 Days</option>
-                    <option value="all">All Time</option>
-                </select>
-            </div>
-            
-            <!-- Search -->
-            <div>
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Search</label>
-                <input type="text" id="search-filter" placeholder="Search messages..." class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-            </div>
-        </div>
+<div class="flex items-center justify-between mb-5">
+    <p class="text-sm text-gray-600 dark:text-gray-400">Renewal attempts, newest first.</p>
+    <div class="flex items-center gap-2">
+        <select id="account-filter" class="input w-auto py-1.5 text-xs">
+            <option value="">All accounts</option>
+        </select>
+        <select id="status-filter" class="input w-auto py-1.5 text-xs">
+            <option value="">All statuses</option>
+            <option value="success">Success</option>
+            <option value="failed">Failed</option>
+        </select>
+        <button onclick="refreshLogs()" class="btn btn-ghost p-2" title="Refresh">{{ icon('refresh') }}</button>
+        <button onclick="clearAllLogs()" class="btn btn-ghost p-2 text-red-600" title="Clear all logs">{{ icon('trash') }}</button>
     </div>
 </div>
 
-<!-- Log Statistics -->
-<div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-        <div class="flex items-center">
-            <div class="flex-shrink-0">
-                <div class="w-12 h-12 bg-blue-500 rounded-lg flex items-center justify-center">
-                    <i class="fas fa-list text-white text-xl"></i>
-                </div>
-            </div>
-            <div class="ml-4">
-                <p class="text-sm font-medium text-gray-600 dark:text-gray-400">Total Attempts</p>
-                <p class="text-3xl font-bold text-gray-900 dark:text-white" id="total-attempts">-</p>
-            </div>
-        </div>
-    </div>
-    
-    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-        <div class="flex items-center">
-            <div class="flex-shrink-0">
-                <div class="w-12 h-12 bg-green-500 rounded-lg flex items-center justify-center">
-                    <i class="fas fa-check-circle text-white text-xl"></i>
-                </div>
-            </div>
-            <div class="ml-4">
-                <p class="text-sm font-medium text-gray-600 dark:text-gray-400">Successful</p>
-                <p class="text-3xl font-bold text-gray-900 dark:text-white" id="successful-attempts">-</p>
-            </div>
-        </div>
-    </div>
-    
-    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-        <div class="flex items-center">
-            <div class="flex-shrink-0">
-                <div class="w-12 h-12 bg-red-500 rounded-lg flex items-center justify-center">
-                    <i class="fas fa-exclamation-circle text-white text-xl"></i>
-                </div>
-            </div>
-            <div class="ml-4">
-                <p class="text-sm font-medium text-gray-600 dark:text-gray-400">Failed</p>
-                <p class="text-3xl font-bold text-gray-900 dark:text-white" id="failed-attempts">-</p>
-            </div>
-        </div>
-    </div>
-    
-    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-        <div class="flex items-center">
-            <div class="flex-shrink-0">
-                <div class="w-12 h-12 bg-purple-500 rounded-lg flex items-center justify-center">
-                    <i class="fas fa-percentage text-white text-xl"></i>
-                </div>
-            </div>
-            <div class="ml-4">
-                <p class="text-sm font-medium text-gray-600 dark:text-gray-400">Success Rate</p>
-                <p class="text-3xl font-bold text-gray-900 dark:text-white" id="success-rate">-</p>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Activity Logs -->
-<div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-    <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-600">
-        <div class="flex items-center justify-between">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Recent Activity</h3>
-            <div class="flex items-center space-x-2">
-                <span class="text-sm text-gray-500 dark:text-gray-400">Auto-refresh:</span>
-                <button id="auto-refresh-toggle" onclick="toggleAutoRefresh()" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded text-xs font-medium transition-colors">
-                    <i class="fas fa-pause mr-1"></i>Off
-                </button>
-            </div>
-        </div>
-    </div>
-    
-    <div class="overflow-x-auto">
-        <table class="w-full">
-            <thead class="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
-                <tr>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Account</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Message</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Duration</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Timestamp</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
-                </tr>
-            </thead>
-            <tbody id="logs-table-body" class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                <!-- Logs will be loaded here via JavaScript -->
-                <tr>
-                    <td colspan="6" class="px-6 py-12 text-center">
-                        <div class="flex items-center justify-center">
-                            <i class="fas fa-spinner fa-spin text-gray-400 text-2xl mr-3"></i>
-                            <span class="text-gray-500">Loading activity logs...</span>
-                        </div>
+<div class="card overflow-hidden">
+    <table class="w-full text-sm">
+        <thead class="bg-gray-50 dark:bg-gray-800/60 text-gray-600 dark:text-gray-400 text-xs uppercase tracking-wider">
+            <tr>
+                <th class="text-left font-medium px-5 py-3 w-12"></th>
+                <th class="text-left font-medium px-5 py-3">When</th>
+                <th class="text-left font-medium px-5 py-3 hidden md:table-cell">Account</th>
+                <th class="text-left font-medium px-5 py-3">Result</th>
+                <th class="text-left font-medium px-5 py-3 hidden lg:table-cell">Duration</th>
+            </tr>
+        </thead>
+        <tbody id="logs-tbody" class="divide-y divide-gray-200 dark:divide-gray-700">
+            {% if logs.items %}
+                {% for log in logs.items %}
+                <tr data-log-id="{{ log.id }}" class="cursor-pointer hover:bg-gray-50/60 dark:hover:bg-gray-800/40" onclick="showLogDetail({{ log.id }})">
+                    <td class="px-5 py-3 align-middle">
+                        <span class="inline-block w-2 h-2 rounded-full {% if log.success %}bg-emerald-500{% else %}bg-red-500{% endif %}"></span>
+                    </td>
+                    <td class="px-5 py-3 whitespace-nowrap text-gray-600 dark:text-gray-400">
+                        {{ (log.timestamp|localtime).strftime('%b %d %H:%M:%S') }}
+                    </td>
+                    <td class="px-5 py-3 hidden md:table-cell">
+                        {% set acc = accounts.get(log.account_id) %}
+                        {{ acc.display_name if acc else 'Account #' ~ log.account_id }}
+                    </td>
+                    <td class="px-5 py-3">
+                        <p class="truncate max-w-md">
+                            {# Strip leading status emoji; the colored dot conveys status. #}
+                            {{ (log.message|strip_status_emoji) if log.message else '—' }}
+                        </p>
+                    </td>
+                    <td class="px-5 py-3 hidden lg:table-cell text-gray-600 dark:text-gray-400">
+                        {% if log.duration_seconds %}{{ log.duration_seconds }}s{% else %}—{% endif %}
                     </td>
                 </tr>
-            </tbody>
-        </table>
-    </div>
-    
-    <!-- Pagination -->
-    <div class="px-6 py-4 border-t border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700">
-        <div class="flex items-center justify-between">
-            <div class="text-sm text-gray-700 dark:text-gray-300">
-                Showing <span id="showing-start">0</span> to <span id="showing-end">0</span> of <span id="showing-total">0</span> results
-            </div>
-            <div class="flex space-x-2">
-                <button id="prev-page" onclick="changePage(-1)" class="bg-white hover:bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 px-3 py-2 rounded border dark:border-gray-600 text-sm font-medium transition-colors disabled:opacity-50" disabled>
-                    <i class="fas fa-chevron-left mr-1"></i>Previous
-                </button>
-                <button id="next-page" onclick="changePage(1)" class="bg-white hover:bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 px-3 py-2 rounded border dark:border-gray-600 text-sm font-medium transition-colors disabled:opacity-50" disabled>
-                    Next<i class="fas fa-chevron-right ml-1"></i>
-                </button>
-            </div>
+                {% endfor %}
+            {% else %}
+                <tr><td colspan="5" class="px-5 py-12 text-center text-sm text-gray-500 dark:text-gray-400">No activity yet.</td></tr>
+            {% endif %}
+        </tbody>
+    </table>
+
+    {% if logs.pages > 1 %}
+    <div class="px-5 py-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between text-sm">
+        <span class="text-gray-500 dark:text-gray-400">Page {{ logs.page }} of {{ logs.pages }} · {{ logs.total }} total</span>
+        <div class="flex items-center gap-2">
+            {% if logs.has_prev %}<a href="?page={{ logs.prev_num }}" class="btn btn-secondary text-xs">← Prev</a>{% endif %}
+            {% if logs.has_next %}<a href="?page={{ logs.next_num }}" class="btn btn-secondary text-xs">Next →</a>{% endif %}
         </div>
     </div>
+    {% endif %}
 </div>
 
-<!-- Log Detail Modal -->
-<div id="log-detail-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
-    <div class="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
-        <div class="flex items-center justify-between mb-4">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Log Details</h3>
-            <button onclick="hideLogDetail()" class="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300">
-                <i class="fas fa-times text-xl"></i>
-            </button>
+<!-- Detail modal -->
+<div id="log-detail-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 hidden p-4" onclick="if(event.target===this) hideLogDetail()">
+    <div class="card max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div class="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <h3 class="text-sm font-semibold">Renewal attempt</h3>
+            <button class="btn btn-ghost p-2" onclick="hideLogDetail()">{{ icon('x') }}</button>
         </div>
-        
-        <div id="log-detail-content">
-            <!-- Content will be populated by JavaScript -->
-        </div>
+        <div id="log-detail-content" class="p-5 space-y-4 text-sm"></div>
     </div>
 </div>
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
-let currentPage = 1;
-let pageSize = 50;
-let autoRefreshInterval = null;
-let logs = [];
-let filteredLogs = [];
+async function refreshLogs() { location.reload(); }
 
-// Initialize page
-document.addEventListener('DOMContentLoaded', function() {
-    loadLogs();
-    setupFilters();
-    loadAccounts();
-    
-    // Check for account filter in URL
-    const urlParams = new URLSearchParams(window.location.search);
-    const accountId = urlParams.get('account');
-    if (accountId) {
-        // Wait for accounts to load, then set the filter
-        setTimeout(() => {
-            const accountFilter = document.getElementById('account-filter');
-            if (accountFilter) {
-                accountFilter.value = accountId;
-                applyFilters();
-            }
-        }, 1000);
-    }
-});
-
-// Load logs from API
-async function loadLogs() {
-    try {
-        showLoading();
-        const response = await fetch('/api/logs');
-        if (response.ok) {
-            logs = await response.json();
-            applyFilters();
-            updateStatistics();
-        } else {
-            const errorText = response.status === 404 ? 
-                'Logs API not found. Please check server configuration.' :
-                `Failed to load logs (${response.status}: ${response.statusText})`;
-            showError(errorText);
-        }
-    } catch (error) {
-        console.error('Error loading logs:', error);
-        showError(`Network error: ${error.message}. Please check your connection and try again.`);
-    }
-}
-
-// Load accounts for filter dropdown
-async function loadAccounts() {
-    try {
-        const response = await fetch('/api/accounts');
-        if (response.ok) {
-            const accounts = await response.json();
-            const accountFilter = document.getElementById('account-filter');
-            
-            accounts.forEach(account => {
-                const option = document.createElement('option');
-                option.value = account.id;
-                option.textContent = account.name;
-                accountFilter.appendChild(option);
-            });
-        } else {
-            console.warn('Failed to load accounts for filter dropdown');
-        }
-    } catch (error) {
-        console.error('Error loading accounts for filter:', error);
-    }
-}
-
-// Apply filters to logs
-function applyFilters() {
-    const accountFilter = document.getElementById('account-filter').value;
-    const statusFilter = document.getElementById('status-filter').value;
-    const dateFilter = document.getElementById('date-filter').value;
-    const searchFilter = document.getElementById('search-filter').value.toLowerCase();
-    
-    filteredLogs = logs.filter(log => {
-        // Account filter
-        if (accountFilter && log.account_id != accountFilter) return false;
-        
-        // Status filter
-        if (statusFilter) {
-            if (statusFilter === 'success') {
-                if (!log.success || (log.message && log.message.startsWith('⚠️'))) return false;
-            } else if (statusFilter === 'warning') {
-                if (!log.success || !log.message || !log.message.startsWith('⚠️')) return false;
-            } else if (statusFilter === 'failed') {
-                if (log.success) return false;
-            }
-        }
-        
-        // Date filter
-        if (dateFilter !== 'all') {
-            const logDate = new Date(log.timestamp);
-            const now = new Date();
-            const diffHours = (now - logDate) / (1000 * 60 * 60);
-            
-            if (dateFilter === '24h' && diffHours > 24) return false;
-            if (dateFilter === '7d' && diffHours > 168) return false;
-            if (dateFilter === '30d' && diffHours > 720) return false;
-        }
-        
-        // Search filter
-        if (searchFilter && !log.message.toLowerCase().includes(searchFilter)) return false;
-        
-        return true;
-    });
-    
-    currentPage = 1;
-    renderLogs();
-    updatePagination();
-}
-
-// Render logs table
-function renderLogs() {
-    const tbody = document.getElementById('logs-table-body');
-    const start = (currentPage - 1) * pageSize;
-    const end = start + pageSize;
-    const pageData = filteredLogs.slice(start, end);
-    
-    if (pageData.length === 0) {
-        const hasFilters = document.getElementById('account-filter').value || 
-                          document.getElementById('status-filter').value || 
-                          document.getElementById('search-filter').value ||
-                          document.getElementById('date-filter').value !== '24h';
-        
-        const message = hasFilters ? 
-            'No logs found matching your filters. Try adjusting your search criteria.' :
-            'No renewal attempts recorded yet. Logs will appear here after renewals start running.';
-        
-        const icon = hasFilters ? 'fa-search' : 'fa-clock';
-        
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="6" class="px-6 py-12 text-center">
-                    <div class="text-gray-500">
-                        <i class="fas ${icon} text-4xl mb-4"></i>
-                        <p class="text-lg mb-2">${message}</p>
-                        ${hasFilters ? '<button onclick="clearFilters()" class="mt-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">Clear Filters</button>' : ''}
-                    </div>
-                </td>
-            </tr>
-        `;
-        return;
-    }
-    
-    tbody.innerHTML = pageData.map(log => {
-        // Determine status display with warning support
-        let statusClass, statusIcon, statusText, messagePrefix;
-        if (log.success) {
-            if (log.message && log.message.startsWith('⚠️')) {
-                statusClass = 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
-                statusIcon = 'fa-exclamation-triangle';
-                statusText = 'Success (Warning)';
-                messagePrefix = '⚠️ ';
-            } else {
-                statusClass = 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
-                statusIcon = 'fa-check-circle';
-                statusText = 'Success';
-                messagePrefix = '✅ ';
-            }
-        } else {
-            statusClass = 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
-            statusIcon = 'fa-times-circle';
-            statusText = 'Failed';
-            messagePrefix = '❌ ';
-        }
-        
-        const timestamp = new Date(log.timestamp).toLocaleString('en-US', {
-            timeZone: 'America/New_York',
-            month: '2-digit',
-            day: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            timeZoneName: 'short'
-        });
-        const duration = log.duration_seconds ? `${log.duration_seconds}s` : '-';
-        
-        return `
-            <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
-                <td class="px-6 py-4 whitespace-nowrap">
-                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusClass}">
-                        <i class="fas ${statusIcon} mr-1"></i>
-                        ${statusText}
-                    </span>
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    ${log.account_name || 'Unknown Account'}
-                </td>
-                <td class="px-6 py-4 text-sm text-gray-900 dark:text-gray-100 max-w-md truncate">
-                    ${log.message && (log.message.startsWith('✅') || log.message.startsWith('⚠️') || log.message.startsWith('❌')) 
-                        ? log.message 
-                        : messagePrefix + (log.message || 'No message')}
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    ${duration}
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    ${timestamp}
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <button onclick="showLogDetail(${JSON.stringify(log).replace(/"/g, '&quot;')})" class="text-blue-600 hover:text-blue-900">
-                        <i class="fas fa-eye mr-1"></i>Details
-                    </button>
-                </td>
-            </tr>
-        `;
-    }).join('');
-}
-
-// Update statistics
-function updateStatistics() {
-    const total = filteredLogs.length;
-    const successful = filteredLogs.filter(log => log.success).length;
-    const failed = total - successful;
-    const successRate = total > 0 ? Math.round((successful / total) * 100) : 0;
-    
-    document.getElementById('total-attempts').textContent = total;
-    document.getElementById('successful-attempts').textContent = successful;
-    document.getElementById('failed-attempts').textContent = failed;
-    document.getElementById('success-rate').textContent = `${successRate}%`;
-}
-
-// Update pagination
-function updatePagination() {
-    const total = filteredLogs.length;
-    const start = (currentPage - 1) * pageSize + 1;
-    const end = Math.min(currentPage * pageSize, total);
-    
-    document.getElementById('showing-start').textContent = total > 0 ? start : 0;
-    document.getElementById('showing-end').textContent = end;
-    document.getElementById('showing-total').textContent = total;
-    
-    document.getElementById('prev-page').disabled = currentPage <= 1;
-    document.getElementById('next-page').disabled = end >= total;
-}
-
-// Change page
-function changePage(delta) {
-    const newPage = currentPage + delta;
-    const maxPage = Math.ceil(filteredLogs.length / pageSize);
-    
-    if (newPage >= 1 && newPage <= maxPage) {
-        currentPage = newPage;
-        renderLogs();
-        updatePagination();
-    }
-}
-
-// Setup filter event listeners
-function setupFilters() {
-    document.getElementById('account-filter').addEventListener('change', applyFilters);
-    document.getElementById('status-filter').addEventListener('change', applyFilters);
-    document.getElementById('date-filter').addEventListener('change', applyFilters);
-    document.getElementById('search-filter').addEventListener('input', debounce(applyFilters, 300));
-}
-
-// Refresh logs
-async function refreshLogs() {
-    const button = event.target.closest('button');
-    const originalText = button.innerHTML;
-    button.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Refreshing...';
-    button.disabled = true;
-    
-    await loadLogs();
-    
-    button.innerHTML = originalText;
-    button.disabled = false;
-}
-
-// Toggle auto-refresh
-function toggleAutoRefresh() {
-    const button = document.getElementById('auto-refresh-toggle');
-    
-    if (autoRefreshInterval) {
-        clearInterval(autoRefreshInterval);
-        autoRefreshInterval = null;
-        button.innerHTML = '<i class="fas fa-play mr-1"></i>Off';
-        button.className = button.className.replace('bg-green-200 text-green-700', 'bg-gray-200 text-gray-700');
-    } else {
-        autoRefreshInterval = setInterval(loadLogs, 30000); // Refresh every 30 seconds
-        button.innerHTML = '<i class="fas fa-pause mr-1"></i>On';
-        button.className = button.className.replace('bg-gray-200 text-gray-700', 'bg-green-200 text-green-700');
-    }
-}
-
-// Show log detail modal
-function showLogDetail(log) {
-    const modal = document.getElementById('log-detail-modal');
-    const content = document.getElementById('log-detail-content');
-    
-    const timestamp = new Date(log.timestamp).toLocaleString('en-US', {
-        timeZone: 'America/New_York',
-        month: '2-digit',
-        day: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        timeZoneName: 'short'
-    });
-    const duration = log.duration_seconds ? `${log.duration_seconds} seconds` : 'Not recorded';
-    
-    content.innerHTML = `
-        <div class="space-y-4">
-            <div class="grid grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700">Status</label>
-                    <div class="mt-1">
-                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            log.success 
-                                ? (log.message && log.message.startsWith('⚠️') 
-                                    ? 'bg-yellow-100 text-yellow-800' 
-                                    : 'bg-green-100 text-green-800')
-                                : 'bg-red-100 text-red-800'
-                        }">
-                            <i class="fas ${
-                                log.success 
-                                    ? (log.message && log.message.startsWith('⚠️') 
-                                        ? 'fa-exclamation-triangle' 
-                                        : 'fa-check-circle')
-                                    : 'fa-exclamation-circle'
-                            } mr-1"></i>
-                            ${log.success 
-                                ? (log.message && log.message.startsWith('⚠️') 
-                                    ? 'Success with warning' 
-                                    : 'Success')
-                                : 'Failed'
-                            }
-                        </span>
-                    </div>
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700">Duration</label>
-                    <p class="mt-1 text-sm text-gray-900">${duration}</p>
-                </div>
-            </div>
-            
-            <div>
-                <label class="block text-sm font-medium text-gray-700">Timestamp</label>
-                <p class="mt-1 text-sm text-gray-900">${timestamp}</p>
-            </div>
-            
-            <div>
-                <label class="block text-sm font-medium text-gray-700">Account</label>
-                <p class="mt-1 text-sm text-gray-900">${log.account_name || 'Unknown Account'}</p>
-            </div>
-            
-            <div>
-                <label class="block text-sm font-medium text-gray-700">Message</label>
-                <div class="mt-1 p-3 bg-gray-50 rounded-lg">
-                    <p class="text-sm text-gray-900 whitespace-pre-wrap">${log.message || 'No message recorded'}</p>
-                </div>
-            </div>
-            
-            ${log.screenshot_filename ? `
-            <div>
-                <label class="block text-sm font-medium text-gray-700">Screenshot</label>
-                <div class="mt-1">
-                    <div class="border rounded-lg p-4 bg-white">
-                        <img src="/api/screenshots/${log.screenshot_filename}" 
-                             alt="Renewal attempt screenshot" 
-                             class="max-w-full h-auto rounded border cursor-pointer hover:shadow-lg transition-shadow"
-                             onclick="showScreenshotFullsize('/api/screenshots/${log.screenshot_filename}')" />
-                        <p class="text-xs text-gray-500 mt-2">Click to view full size</p>
-                    </div>
-                </div>
-            </div>
-            ` : ''}
-            
-        </div>
-    `;
-    
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
-}
-
-// Hide log detail modal
-function hideLogDetail() {
-    const modal = document.getElementById('log-detail-modal');
-    modal.classList.add('hidden');
-    modal.classList.remove('flex');
-}
-
-// Show screenshot in fullsize modal
-function showScreenshotFullsize(imageSrc) {
-    // Create fullsize modal if it doesn't exist
-    let modal = document.getElementById('screenshot-fullsize-modal');
-    if (!modal) {
-        modal = document.createElement('div');
-        modal.id = 'screenshot-fullsize-modal';
-        modal.className = 'fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center z-50 hidden';
-        modal.innerHTML = `
-            <div class="relative max-w-4xl max-h-full p-4">
-                <img id="fullsize-screenshot" src="" alt="Full size screenshot" class="max-w-full max-h-full rounded-lg shadow-xl" />
-                <button onclick="hideScreenshotFullsize()" 
-                        class="absolute top-6 right-6 bg-black bg-opacity-50 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-opacity-75">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-        `;
-        document.body.appendChild(modal);
-    }
-    
-    // Set the image source and show modal
-    document.getElementById('fullsize-screenshot').src = imageSrc;
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
-}
-
-// Hide fullsize screenshot modal
-function hideScreenshotFullsize() {
-    const modal = document.getElementById('screenshot-fullsize-modal');
-    if (modal) {
-        modal.classList.add('hidden');
-        modal.classList.remove('flex');
-    }
-}
-
-// Show loading message
-function showLoading() {
-    const tbody = document.getElementById('logs-table-body');
-    tbody.innerHTML = `
-        <tr>
-            <td colspan="6" class="px-6 py-12 text-center">
-                <div class="flex items-center justify-center">
-                    <i class="fas fa-spinner fa-spin text-gray-400 text-2xl mr-3"></i>
-                    <span class="text-gray-500">Loading activity logs...</span>
-                </div>
-            </td>
-        </tr>
-    `;
-}
-
-// Show error message
-function showError(message) {
-    const tbody = document.getElementById('logs-table-body');
-    tbody.innerHTML = `
-        <tr>
-            <td colspan="6" class="px-6 py-12 text-center">
-                <div class="text-red-500">
-                    <i class="fas fa-exclamation-triangle text-4xl mb-4"></i>
-                    <p class="text-lg mb-2">${message}</p>
-                    <button onclick="loadLogs()" class="mt-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-                        <i class="fas fa-sync-alt mr-2"></i>Retry
-                    </button>
-                </div>
-            </td>
-        </tr>
-    `;
-}
-
-// Clear all filters
-function clearFilters() {
-    document.getElementById('account-filter').value = '';
-    document.getElementById('status-filter').value = '';
-    document.getElementById('date-filter').value = '24h';
-    document.getElementById('search-filter').value = '';
-    applyFilters();
-}
-
-// Utility function for debouncing
-function debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
-        const later = () => {
-            clearTimeout(timeout);
-            func(...args);
-        };
-        clearTimeout(timeout);
-        timeout = setTimeout(later, wait);
-    };
-}
-
-// Close modal on outside click
-document.getElementById('log-detail-modal').addEventListener('click', function(e) {
-    if (e.target === this) {
-        hideLogDetail();
-    }
-});
-
-// Close modal on escape key
-document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
-        hideLogDetail();
-    }
-});
-
-// Clear all logs function
 async function clearAllLogs() {
-    // Confirmation dialog
-    const confirmResult = confirm(
-        'Are you sure you want to clear ALL activity logs?\n\n' +
-        'This will permanently delete:\n' +
-        '• All renewal log entries from the database\n' +
-        '• All associated screenshots and HTML files\n' +
-        '• This action cannot be undone!\n\n' +
-        'Click OK to proceed or Cancel to abort.'
-    );
-    
-    if (!confirmResult) {
-        return;
-    }
-    
-    try {
-        // Show loading state
-        const clearButton = document.querySelector('button[onclick="clearAllLogs()"]');
-        const originalText = clearButton.innerHTML;
-        clearButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Clearing...';
-        clearButton.disabled = true;
-        
-        const response = await fetch('/api/logs/clear', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            }
-        });
-        
-        const result = await response.json();
-        
-        if (result.success) {
-            // Show success message
-            alert(`Successfully cleared ${result.deleted_logs} log entries and ${result.deleted_directories} screenshot directories.`);
-            
-            // Refresh the logs display
-            loadLogs();
-        } else {
-            alert(`Failed to clear logs: ${result.message}`);
-        }
-        
-    } catch (error) {
-        console.error('Error clearing logs:', error);
-        alert('Failed to clear logs. Please check the console for details.');
-    } finally {
-        // Restore button state
-        const clearButton = document.querySelector('button[onclick="clearAllLogs()"]');
-        clearButton.innerHTML = '<i class="fas fa-trash-alt mr-2"></i>Clear All Logs';
-        clearButton.disabled = false;
-    }
+    if (!confirm('Delete all renewal log entries and screenshots? This cannot be undone.')) return;
+    const r = await fetch('/api/logs/clear', { method: 'POST' });
+    if (r.ok) location.reload();
 }
+
+async function showLogDetail(id) {
+    const r = await fetch('/api/logs');
+    const logs = await r.json();
+    const log = logs.find(l => l.id === id);
+    if (!log) return;
+
+    const ts = new Date(log.timestamp).toLocaleString();
+    const dur = log.duration_seconds ? `${log.duration_seconds}s` : '—';
+    const statusPill = log.success
+        ? '<span class="pill bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">Success</span>'
+        : '<span class="pill bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200">Failed</span>';
+
+    let html = `
+      <div class="flex items-center gap-3">${statusPill}<span class="text-gray-500 dark:text-gray-400">${ts} · ${dur}</span></div>
+      <div><div class="text-xs uppercase text-gray-500 dark:text-gray-400 mb-1">Account</div><div>${log.account_name || 'Unknown'}</div></div>
+      <div><div class="text-xs uppercase text-gray-500 dark:text-gray-400 mb-1">Message</div>
+        <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md p-3 whitespace-pre-wrap text-xs font-mono">${log.message || '—'}</div></div>
+    `;
+    if (log.screenshot_filename) {
+        html += `<div><div class="text-xs uppercase text-gray-500 dark:text-gray-400 mb-1">Final screenshot</div>
+          <img src="/api/screenshots/${log.screenshot_filename}" alt="screenshot" class="w-full rounded-md border border-gray-200 dark:border-gray-700 cursor-zoom-in" onclick="window.open(this.src)"></div>`;
+    }
+
+    document.getElementById('log-detail-content').innerHTML = html;
+    document.getElementById('log-detail-modal').classList.remove('hidden');
+}
+function hideLogDetail() { document.getElementById('log-detail-modal').classList.add('hidden'); }
+
+// Populate account filter
+fetch('/api/accounts').then(r => r.json()).then(accounts => {
+    const sel = document.getElementById('account-filter');
+    accounts.forEach(a => {
+        const opt = document.createElement('option');
+        opt.value = a.id;
+        opt.textContent = a.name;
+        sel.appendChild(opt);
+    });
+});
+document.getElementById('account-filter').addEventListener('change', e => {
+    location.search = e.target.value ? `?account=${e.target.value}` : '';
+});
 </script>
 {% endblock %}

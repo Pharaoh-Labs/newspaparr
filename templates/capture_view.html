@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+
+{% block title %}Capture - {{ account.name }} - Newspaparr{% endblock %}
+{% block page_title %}Capture session{% endblock %}
+
+{% block content %}
+<div class="card p-4 mb-4 bg-blue-50/50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
+    <div class="flex gap-3">
+        {{ icon('info', cls='w-4 h-4 text-brand-600 mt-0.5') }}
+        <div class="text-sm">
+            <p class="font-medium mb-1">{{ account.name }} (NYT)</p>
+            <ol class="list-decimal pl-4 space-y-0.5 text-gray-700 dark:text-gray-300">
+                <li>Click <strong>Start session</strong>. A live Chrome appears.</li>
+                <li>Log into NYT with your usual credentials.</li>
+                <li>Land on your account home, then click <strong>Save &amp; close</strong>.</li>
+            </ol>
+            <p class="mt-2 text-xs text-gray-600 dark:text-gray-400">Sessions typically last ~30 days. Re-capture when renewals start failing.</p>
+        </div>
+    </div>
+</div>
+
+<div class="card p-3 mb-3 flex items-center justify-between">
+    <span id="status-text" class="text-sm text-gray-600 dark:text-gray-400">No session running.</span>
+    <div class="flex items-center gap-2">
+        <button id="start-btn" class="btn btn-primary">{{ icon('play') }} Start session</button>
+        <button id="finish-btn" class="btn btn-primary bg-emerald-600 hover:bg-emerald-700" style="display:none">{{ icon('check') }} Save &amp; close</button>
+        <button id="cancel-btn" class="btn btn-secondary" style="display:none">{{ icon('x') }} Cancel</button>
+    </div>
+</div>
+
+<div id="viewer" class="card overflow-hidden bg-black" style="height: 768px; display:none;">
+    <iframe id="vnc-frame" style="width:100%; height:100%; border:0;" allow="clipboard-read; clipboard-write"></iframe>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const accountId = {{ account.id }};
+let token = null;
+
+const statusText = document.getElementById('status-text');
+const startBtn = document.getElementById('start-btn');
+const finishBtn = document.getElementById('finish-btn');
+const cancelBtn = document.getElementById('cancel-btn');
+const viewer = document.getElementById('viewer');
+const frame = document.getElementById('vnc-frame');
+
+function setStatus(msg) { statusText.textContent = msg; }
+
+async function start() {
+    startBtn.disabled = true;
+    setStatus('Starting browser…');
+    const r = await fetch(`/accounts/${accountId}/capture/start`, { method: 'POST' });
+    if (!r.ok) {
+        const err = await r.json().catch(() => ({error: r.statusText}));
+        setStatus('Failed: ' + (err.error || 'unknown error'));
+        startBtn.disabled = false;
+        return;
+    }
+    const data = await r.json();
+    token = data.token;
+    const wsHost = location.hostname;
+    frame.src = `/static/novnc/vnc_lite.html?host=${wsHost}&port=${data.ws_port}&path=&autoconnect=1&scale=true`;
+    viewer.style.display = '';
+    startBtn.style.display = 'none';
+    finishBtn.style.display = '';
+    cancelBtn.style.display = '';
+    setStatus('Session active — log into NYT, then click Save & close.');
+}
+
+async function stop(save) {
+    if (!token) return;
+    finishBtn.disabled = true;
+    cancelBtn.disabled = true;
+    setStatus(save ? 'Saving session…' : 'Cancelling…');
+    await fetch(`/accounts/${accountId}/capture/${token}/finish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ save: !!save }),
+    });
+    window.location = '/accounts';
+}
+
+startBtn.addEventListener('click', start);
+finishBtn.addEventListener('click', () => stop(true));
+cancelBtn.addEventListener('click', () => stop(false));
+</script>
+{% endblock %}

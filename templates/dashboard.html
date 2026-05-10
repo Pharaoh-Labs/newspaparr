@@ -2,466 +2,112 @@
 
 {% block title %}Dashboard - Newspaparr{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
-{% block page_description %}Overview of your newspaper library pass renewals{% endblock %}
 
 {% block content %}
-<!-- Statistics Cards -->
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-    <!-- Total Accounts -->
-    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 card-hover">
-        <div class="flex items-center">
-            <div class="flex-shrink-0">
-                <div class="w-12 h-12 bg-blue-500 rounded-lg flex items-center justify-center">
-                    <i class="fas fa-users text-white text-xl"></i>
-                </div>
-            </div>
-            <div class="ml-4">
-                <p class="text-sm font-medium text-gray-600 dark:text-gray-400">Total Accounts</p>
-                <p class="text-3xl font-bold text-gray-900 dark:text-white">{{ total_accounts }}</p>
-            </div>
-        </div>
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    <div class="card p-5">
+        <p class="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">Accounts</p>
+        <p class="mt-1 text-2xl font-semibold">{{ total_accounts }}</p>
+        <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ active_accounts }} active</p>
     </div>
-    
-    <!-- Active Accounts -->
-    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 card-hover">
-        <div class="flex items-center">
-            <div class="flex-shrink-0">
-                <div class="w-12 h-12 bg-green-500 rounded-lg flex items-center justify-center">
-                    <i class="fas fa-check-circle text-white text-xl"></i>
-                </div>
-            </div>
-            <div class="ml-4">
-                <p class="text-sm font-medium text-gray-600 dark:text-gray-400">Active Accounts</p>
-                <p class="text-3xl font-bold text-gray-900 dark:text-white">{{ active_accounts }}</p>
-            </div>
-        </div>
+    <div class="card p-5">
+        <p class="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">Success rate (7d)</p>
+        <p class="mt-1 text-2xl font-semibold">{{ "%.0f"|format(success_rate) }}%</p>
+        <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">last 7 days of attempts</p>
     </div>
-    
-    <!-- Success Rate -->
-    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 card-hover">
-        <div class="flex items-center">
-            <div class="flex-shrink-0">
-                <div class="w-12 h-12 {% if success_rate >= 90 %}bg-green-500{% elif success_rate >= 70 %}bg-yellow-500{% else %}bg-red-500{% endif %} rounded-lg flex items-center justify-center">
-                    <i class="fas fa-chart-line text-white text-xl"></i>
-                </div>
-            </div>
-            <div class="ml-4">
-                <p class="text-sm font-medium text-gray-600 dark:text-gray-400">Success Rate (7d)</p>
-                <p class="text-3xl font-bold text-gray-900 dark:text-white">{{ "%.1f"|format(success_rate) }}%</p>
-            </div>
-        </div>
+    <div class="card p-5">
+        <p class="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">Next renewal</p>
+        {% if next_renewal %}
+            {% set time_diff = (next_renewal.next_renewal - datetime.utcnow()).total_seconds() %}
+            {% if time_diff > 0 %}
+                {% set hours = (time_diff // 3600)|int %}
+                {% set minutes = ((time_diff % 3600) // 60)|int %}
+                <p class="mt-1 text-2xl font-semibold">{% if hours > 0 %}{{ hours }}h {{ minutes }}m{% else %}{{ minutes }}m{% endif %}</p>
+            {% else %}
+                <p class="mt-1 text-2xl font-semibold">Now</p>
+            {% endif %}
+            <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ next_renewal.name }}</p>
+        {% else %}
+            <p class="mt-1 text-2xl font-semibold text-gray-400">—</p>
+            <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">no schedule</p>
+        {% endif %}
     </div>
-    
-    <!-- Next Renewal -->
-    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 card-hover">
-        <div class="flex items-center">
-            <div class="flex-shrink-0">
-                <div class="w-12 h-12 bg-purple-500 rounded-lg flex items-center justify-center">
-                    <i class="fas fa-clock text-white text-xl"></i>
-                </div>
-            </div>
-            <div class="ml-4">
-                <p class="text-sm font-medium text-gray-600 dark:text-gray-400">Next Renewal</p>
-                <p class="text-lg font-bold text-gray-900 dark:text-white">
-                    {% if next_renewal %}
-                        {% set now = datetime.utcnow() %}
-                        {% set time_diff = (next_renewal.next_renewal - now).total_seconds() %}
-                        {% if time_diff > 0 %}
-                            {% set hours = (time_diff // 3600)|int %}
-                            {% set minutes = ((time_diff % 3600) // 60)|int %}
-                            {% if hours > 0 %}
-                                {{ hours }}h {{ minutes }}m
-                            {% else %}
-                                {{ minutes }}m
-                            {% endif %}
-                        {% else %}
-                            Now
-                        {% endif %}
-                    {% else %}
-                        Not scheduled
-                    {% endif %}
-                </p>
-                {% if next_renewal %}
-                    <p class="text-xs text-gray-500 dark:text-gray-400">{{ next_renewal.name }}</p>
-                {% endif %}
-            </div>
-        </div>
+    <div class="card p-5">
+        <p class="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">Recent failures</p>
+        {% set fails = recent_logs|selectattr('success', 'equalto', False)|list|length if recent_logs else 0 %}
+        <p class="mt-1 text-2xl font-semibold {% if fails > 0 %}text-red-600 dark:text-red-400{% endif %}">{{ fails }}</p>
+        <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">in last logged attempts</p>
     </div>
 </div>
 
-<!-- Main Content Grid -->
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-    <!-- Account Status -->
-    <div class="lg:col-span-2">
-        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-            <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                <div class="flex items-center justify-between">
-                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Account Status</h3>
-                    <a href="{{ url_for('add_account') }}" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-                        <i class="fas fa-plus mr-2"></i>Add Account
-                    </a>
-                </div>
-            </div>
-            
-            <div class="p-6">
-                {% if accounts %}
-                    <div class="space-y-4">
-                        {% for account in accounts %}
-                            <div class="bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden">
-                                <!-- Account Header -->
-                                <div class="px-4 py-3 bg-gradient-to-r from-gray-100 to-gray-200 dark:from-gray-600 dark:to-gray-500 border-b border-gray-200 dark:border-gray-600">
-                                    <div class="flex items-center justify-between">
-                                        <div class="flex items-center space-x-3">
-                                            <div class="w-10 h-10 {% if account.active %}bg-green-500{% else %}bg-gray-400{% endif %} rounded-lg flex items-center justify-center">
-                                                <i class="fas fa-user text-white text-lg"></i>
-                                            </div>
-                                            <div>
-                                                <h4 class="text-lg font-bold text-gray-900 dark:text-white">{{ account.display_name }}</h4>
-                                                <p class="text-gray-600 dark:text-gray-300 text-sm">{{ account.username }}</p>
-                                            </div>
-                                        </div>
-                                        
-                                        <div class="flex items-center space-x-2">
-                                            <form method="POST" action="{{ url_for('manual_renewal', id=account.id) }}" style="display: inline;">
-                                                <button type="submit" class="text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300 p-2 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20" title="Renew Now">
-                                                    <i class="fas fa-sync-alt"></i>
-                                                </button>
-                                            </form>
-                                            <a href="{{ url_for('edit_account', id=account.id) }}" class="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 p-2 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20" title="Edit">
-                                                <i class="fas fa-edit"></i>
-                                            </a>
-                                            
-                                            <!-- Last Renewal Status Indicator -->
-                                            {% if account.id in account_statuses %}
-                                                {% set status = account_statuses[account.id] %}
-                                                <span class="px-2 py-1 rounded-full text-xs font-medium {% if status.success %}bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200{% else %}bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200{% endif %}" title="Last renewal: {{ status.timestamp|localtime }} - {{ status.message }}">
-                                                    <i class="fas {% if status.success %}fa-check-circle{% else %}fa-exclamation-circle{% endif %} mr-1"></i>
-                                                    {{ 'Success' if status.success else 'Failed' }}
-                                                </span>
-                                            {% else %}
-                                                <span class="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300" title="No renewal attempts yet">
-                                                    <i class="fas fa-question-circle mr-1"></i>
-                                                    No Data
-                                                </span>
-                                            {% endif %}
-                                            
-                                            <!-- Auto-Renewal Status Indicator -->
-                                            <span class="px-2 py-1 rounded-full text-xs font-medium {% if account.active %}bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200{% else %}bg-gray-100 text-gray-800 dark:bg-gray-600 dark:text-gray-200{% endif %}" title="Auto-renewal {{ 'enabled' if account.active else 'disabled' }}">
-                                                <i class="fas fa-robot mr-1"></i>
-                                                Auto: {{ 'On' if account.active else 'Off' }}
-                                            </span>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <!-- Account Details -->
-                                <div class="px-4 py-3">
-                                    <div class="grid grid-cols-2 gap-4 text-sm">
-                                        <div>
-                                            <div class="flex items-center text-gray-600 dark:text-gray-400 mb-1">
-                                                <i class="fas fa-university w-4 mr-2"></i>
-                                                <span>{{ libraries.get(account.library_type, account.library_type) }}</span>
-                                            </div>
-                                            {% if account.last_renewal %}
-                                                <div class="flex items-center text-gray-600 dark:text-gray-400">
-                                                    <i class="fas fa-history w-4 mr-2"></i>
-                                                    <span>Last: {{ (account.last_renewal|localtime).strftime('%m/%d %H:%M %Z') }}</span>
-                                                </div>
-                                            {% endif %}
-                                        </div>
-                                        <div class="text-right">
-                                            {% if account.next_renewal %}
-                                                <div class="flex items-center justify-end text-gray-600 dark:text-gray-400">
-                                                    <i class="fas fa-arrow-right w-4 mr-2"></i>
-                                                    <span>Next: {{ (account.next_renewal|localtime).strftime('%m/%d %H:%M %Z') }}</span>
-                                                </div>
-                                            {% endif %}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        {% endfor %}
-                    </div>
-                {% else %}
-                    <div class="text-center py-12">
-                        <div class="w-24 h-24 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <i class="fas fa-users text-gray-400 text-3xl"></i>
-                        </div>
-                        <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-2">No accounts configured</h3>
-                        <p class="text-gray-600 dark:text-gray-400 mb-6">Add your first account to start managing newspaper library pass renewals.</p>
-                        <a href="{{ url_for('add_account') }}" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition-colors">
-                            <i class="fas fa-plus mr-2"></i>Add Your First Account
-                        </a>
-                    </div>
-                {% endif %}
-            </div>
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div class="lg:col-span-2 card overflow-hidden">
+        <div class="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <h3 class="text-sm font-semibold tracking-tight">Accounts</h3>
+            <a href="{{ url_for('add_account') }}" class="btn btn-primary text-xs">
+                {{ icon('plus') }} Add account
+            </a>
         </div>
+
+        {% if accounts %}
+        <ul class="divide-y divide-gray-200 dark:divide-gray-700">
+            {% for account in accounts %}
+            <li class="px-5 py-3 flex items-center gap-4">
+                <div class="w-2.5 h-2.5 rounded-full {% if account.active %}bg-emerald-500{% else %}bg-gray-400{% endif %}" title="{{ 'Active' if account.active else 'Paused' }}"></div>
+                <div class="flex-1 min-w-0">
+                    <p class="font-medium truncate">{{ account.display_name }}</p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 truncate">
+                        {{ libraries.get(account.library_type, account.library_type) }}
+                        {% if account.last_renewal %} · last {{ (account.last_renewal|localtime).strftime('%b %d %H:%M') }}{% endif %}
+                    </p>
+                </div>
+
+                {% if account.id in account_statuses %}
+                {% set status = account_statuses[account.id] %}
+                <span class="pill {% if status.success %}bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200{% else %}bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200{% endif %}" title="{{ status.message }}">
+                    {{ 'Success' if status.success else 'Failed' }}
+                </span>
+                {% endif %}
+
+                <div class="flex items-center gap-1">
+                    <form method="POST" action="{{ url_for('manual_renewal', id=account.id) }}">
+                        <button class="btn btn-ghost p-2" title="Renew now">{{ icon('refresh') }}</button>
+                    </form>
+                    <a href="{{ url_for('capture_view', id=account.id) }}" class="btn btn-ghost p-2" title="Capture session">{{ icon('key') }}</a>
+                    <a href="{{ url_for('edit_account', id=account.id) }}" class="btn btn-ghost p-2" title="Edit">{{ icon('pencil') }}</a>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <div class="px-5 py-12 text-center">
+            <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">No accounts yet.</p>
+            <a href="{{ url_for('add_account') }}" class="btn btn-primary">{{ icon('plus') }} Add your first account</a>
+        </div>
+        {% endif %}
     </div>
-    
-    <!-- Quick Access & Recent Activity -->
-    <div class="space-y-8">
-        <!-- Recent Activity -->
-        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-            <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-                <div class="flex items-center justify-between">
-                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Recent Activity</h3>
-                    <a href="{{ url_for('logs') }}" class="text-blue-600 hover:text-blue-700 text-sm font-medium">View All</a>
-                </div>
-            </div>
-            
-            <div class="p-6">
-                {% if recent_logs %}
-                    <div class="space-y-3">
-                        {% for log in recent_logs[:5] %}
-                            <div class="flex items-center space-x-3 py-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg px-2 -mx-2" 
-                                 onclick="showActivityDetail({{ log.id }})">
-                                <!-- Status dot with warning support -->
-                                {% if log.success %}
-                                    {% if log.message and log.message.startswith('⚠️') %}
-                                        <div class="w-2 h-2 bg-yellow-400 rounded-full"></div>
-                                    {% else %}
-                                        <div class="w-2 h-2 bg-green-400 rounded-full"></div>
-                                    {% endif %}
-                                {% else %}
-                                    <div class="w-2 h-2 bg-red-400 rounded-full"></div>
-                                {% endif %}
-                                
-                                <div class="flex-1 min-w-0">
-                                    <p class="text-sm text-gray-900 dark:text-white truncate">
-                                        {% set account = accounts|selectattr('id', 'equalto', log.account_id)|first %}
-                                        {{ account.display_name if account else 'Unknown Account' }}
-                                    </p>
-                                    <p class="text-xs text-gray-500 dark:text-gray-400">
-                                        {{ (log.timestamp|localtime).strftime('%m/%d %H:%M %Z') }} - 
-                                        {% if log.success %}
-                                            {% if log.message and log.message.startswith('⚠️') %}
-                                                <span class="text-yellow-600 dark:text-yellow-400">Success (Warning)</span>
-                                            {% else %}
-                                                <span class="text-green-600 dark:text-green-400">Success</span>
-                                            {% endif %}
-                                        {% else %}
-                                            <span class="text-red-600 dark:text-red-400">Failed</span>
-                                        {% endif %}
-                                    </p>
-                                </div>
-                            </div>
-                        {% endfor %}
-                    </div>
-                {% else %}
-                    <div class="text-center py-8">
-                        <div class="w-16 h-16 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-3">
-                            <i class="fas fa-history text-gray-400 text-xl"></i>
-                        </div>
-                        <p class="text-gray-600 dark:text-gray-400">No recent activity</p>
-                    </div>
-                {% endif %}
-            </div>
+
+    <div class="card overflow-hidden">
+        <div class="px-5 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <h3 class="text-sm font-semibold tracking-tight">Recent activity</h3>
+            <a href="{{ url_for('logs') }}" class="text-xs text-brand-600 hover:underline">View all</a>
         </div>
+        {% if recent_logs %}
+        <ul class="divide-y divide-gray-200 dark:divide-gray-700">
+            {% for log in recent_logs[:8] %}
+            <li class="px-5 py-2.5 flex items-center gap-3 text-sm">
+                <div class="w-2 h-2 rounded-full {% if log.success %}bg-emerald-500{% else %}bg-red-500{% endif %}"></div>
+                <div class="flex-1 min-w-0">
+                    {% set account = accounts|selectattr('id', 'equalto', log.account_id)|first %}
+                    <p class="truncate">{{ account.display_name if account else 'Unknown' }}</p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">{{ (log.timestamp|localtime).strftime('%b %d %H:%M') }}</p>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <div class="px-5 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No activity yet.</div>
+        {% endif %}
     </div>
 </div>
-
-<!-- Log Detail Modal -->
-<div id="log-detail-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center z-50 hidden">
-    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-screen overflow-y-auto">
-        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-            <div class="flex items-center justify-between">
-                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Activity Details</h3>
-                <button onclick="hideLogDetail()" class="text-gray-400 hover:text-gray-600">
-                    <i class="fas fa-times text-xl"></i>
-                </button>
-            </div>
-        </div>
-        <div class="px-6 py-4">
-            <div id="log-detail-content">
-                <!-- Content will be populated by JavaScript -->
-            </div>
-        </div>
-    </div>
-</div>
-{% endblock %}
-
-{% block extra_scripts %}
-<script>
-// Real-time dashboard updates
-async function updateDashboard() {
-    try {
-        const response = await fetch('/api/status');
-        const status = await response.json();
-        
-        // Update statistics cards
-        document.querySelector('.grid .bg-blue-500').closest('.bg-white').querySelector('.text-3xl').textContent = status.total_accounts || 0;
-        document.querySelector('.grid .bg-green-500').closest('.bg-white').querySelector('.text-3xl').textContent = status.active_accounts || 0;
-        
-    } catch (error) {
-        console.error('Failed to update dashboard:', error);
-    }
-}
-
-// Update every 30 seconds
-setInterval(updateDashboard, 30000);
-
-// Add loading states for manual renewal buttons
-document.querySelectorAll('form[action*="renew"]').forEach(form => {
-    form.addEventListener('submit', function(e) {
-        const button = this.querySelector('button');
-        const originalText = button.innerHTML;
-        button.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Renewing...';
-        button.disabled = true;
-        
-        // Re-enable after 10 seconds (in case of page reload failure)
-        setTimeout(() => {
-            button.innerHTML = originalText;
-            button.disabled = false;
-        }, 10000);
-    });
-});
-
-// Show activity detail modal
-async function showActivityDetail(logId) {
-    try {
-        const response = await fetch('/api/logs');
-        const logs = await response.json();
-        const log = logs.find(l => l.id === logId);
-        
-        if (!log) {
-            console.error('Log not found');
-            return;
-        }
-        
-        showLogDetail(log);
-        
-    } catch (error) {
-        console.error('Failed to fetch log details:', error);
-    }
-}
-
-// Show log detail modal (same as logs page)
-function showLogDetail(log) {
-    const modal = document.getElementById('log-detail-modal');
-    const content = document.getElementById('log-detail-content');
-    
-    const timestamp = new Date(log.timestamp).toLocaleString('en-US', {
-        timeZone: 'America/New_York',
-        month: '2-digit',
-        day: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        timeZoneName: 'short'
-    });
-    const duration = log.duration_seconds ? `${log.duration_seconds} seconds` : 'Not recorded';
-    
-    content.innerHTML = `
-        <div class="space-y-4">
-            <div class="grid grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
-                    <div class="mt-1">
-                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            log.success 
-                                ? (log.message && log.message.startsWith('⚠️') 
-                                    ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' 
-                                    : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200')
-                                : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                        }">
-                            <i class="fas ${
-                                log.success 
-                                    ? (log.message && log.message.startsWith('⚠️') 
-                                        ? 'fa-exclamation-triangle' 
-                                        : 'fa-check-circle')
-                                    : 'fa-exclamation-circle'
-                            } mr-1"></i>
-                            ${log.success 
-                                ? (log.message && log.message.startsWith('⚠️') 
-                                    ? 'Success with warning' 
-                                    : 'Success')
-                                : 'Failed'
-                            }
-                        </span>
-                    </div>
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Duration</label>
-                    <p class="mt-1 text-sm text-gray-900 dark:text-white">${duration}</p>
-                </div>
-            </div>
-            
-            <div>
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Timestamp</label>
-                <p class="mt-1 text-sm text-gray-900 dark:text-white">${timestamp}</p>
-            </div>
-            
-            <div>
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Account</label>
-                <p class="mt-1 text-sm text-gray-900 dark:text-white">${log.account_name || 'Unknown Account'}</p>
-            </div>
-            
-            <div>
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Message</label>
-                <div class="mt-1 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                    <p class="text-sm text-gray-900 dark:text-white whitespace-pre-wrap">${log.message || 'No message recorded'}</p>
-                </div>
-            </div>
-            
-            ${log.screenshot_filename ? `
-            <div>
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Screenshot</label>
-                <div class="mt-1">
-                    <div class="border border-gray-200 dark:border-gray-600 rounded-lg p-4 bg-white dark:bg-gray-800">
-                        <img src="/api/screenshots/${log.screenshot_filename}" 
-                             alt="Renewal attempt screenshot" 
-                             class="max-w-full h-auto rounded border cursor-pointer hover:shadow-lg transition-shadow"
-                             onclick="showScreenshotFullsize('/api/screenshots/${log.screenshot_filename}')" />
-                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">Click to view full size</p>
-                    </div>
-                </div>
-            </div>
-            ` : ''}
-            
-        </div>
-    `;
-    
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
-}
-
-// Hide log detail modal
-function hideLogDetail() {
-    const modal = document.getElementById('log-detail-modal');
-    modal.classList.add('hidden');
-    modal.classList.remove('flex');
-}
-
-// Screenshot fullsize modal functions
-function showScreenshotFullsize(imageSrc) {
-    let modal = document.getElementById('screenshot-fullsize-modal');
-    if (!modal) {
-        modal = document.createElement('div');
-        modal.id = 'screenshot-fullsize-modal';
-        modal.className = 'fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center z-50 hidden';
-        modal.innerHTML = `
-            <div class="relative max-w-4xl max-h-full p-4">
-                <img id="fullsize-screenshot" src="" alt="Full size screenshot" class="max-w-full max-h-full rounded-lg shadow-xl" />
-                <button onclick="hideScreenshotFullsize()" 
-                        class="absolute top-6 right-6 bg-black bg-opacity-50 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-opacity-75">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-        `;
-        document.body.appendChild(modal);
-    }
-    
-    document.getElementById('fullsize-screenshot').src = imageSrc;
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
-}
-
-function hideScreenshotFullsize() {
-    const modal = document.getElementById('screenshot-fullsize-modal');
-    if (modal) {
-        modal.classList.add('hidden');
-        modal.classList.remove('flex');
-    }
-}
-</script>
 {% endblock %}

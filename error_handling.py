@@ -15,12 +15,13 @@ class StandardizedLogger:
     def __init__(self, name: str):
         import os
         import logging.handlers
-        
+        from paths import LOGS_DIR
+
         self.logger = logging.getLogger(name)
         # Ensure we have handlers configured
         if not self.logger.handlers and not logging.getLogger().handlers:
             # Configure basic logging if no handlers exist
-            logs_dir = '/app/data/logs'
+            logs_dir = LOGS_DIR
             os.makedirs(logs_dir, exist_ok=True)
             
             # Add file handler
@@ -251,7 +252,7 @@ def setup_logging(debug: bool = False):
     )
     
     # Reduce noise from external libraries
-    logging.getLogger('selenium').setLevel(logging.WARNING)
+    logging.getLogger('httpx').setLevel(logging.WARNING)
     logging.getLogger('urllib3').setLevel(logging.WARNING)
     logging.getLogger('PIL').setLevel(logging.WARNING)
 

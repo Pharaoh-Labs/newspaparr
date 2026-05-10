@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Components extracted from the old inline <style type="text/tailwindcss"> block.
+   Built via the standalone Tailwind CLI — see scripts/build-css.sh. */
+@layer components {
+  [x-cloak] { display: none !important; }
+
+  .nav-link {
+    @apply flex items-center gap-3 px-4 py-2.5 text-sm rounded-md
+           text-gray-600 hover:text-gray-900 hover:bg-gray-100
+           dark:text-gray-300 dark:hover:text-white dark:hover:bg-gray-700/60
+           transition-colors;
+  }
+  .nav-link.active {
+    @apply bg-gray-100 dark:bg-gray-700/60 text-gray-900 dark:text-white font-medium;
+  }
+
+  .card {
+    @apply bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg;
+  }
+
+  .btn {
+    @apply inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md transition-colors;
+  }
+  .btn-primary   { @apply bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50; }
+  .btn-secondary { @apply bg-gray-100 text-gray-800 hover:bg-gray-200
+                          dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600; }
+  .btn-danger    { @apply bg-red-600 text-white hover:bg-red-700; }
+  .btn-ghost     { @apply text-gray-600 hover:bg-gray-100
+                          dark:text-gray-300 dark:hover:bg-gray-700/60; }
+
+  .input {
+    @apply w-full px-3 py-2 text-sm bg-white dark:bg-gray-900
+           border border-gray-300 dark:border-gray-600 rounded-md
+           focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500
+           text-gray-900 dark:text-white;
+  }
+  .label {
+    @apply block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5;
+  }
+  .pill {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full;
+  }
+}

@@ -3,56 +3,62 @@ Flask web application for NYT Auto-Renewal System
 Provides web UI for configuration, monitoring, and management
 """
 
-import os
+import atexit
 import logging
+import os
+import secrets
 from datetime import datetime, timedelta
-from error_handling import StandardizedLogger, with_error_handling
-from config_validation import validate_startup_config, get_validated_config
-try:
-    import pytz
-    TIMEZONE_AVAILABLE = True
-except ImportError:
-    try:
-        import zoneinfo
-        TIMEZONE_AVAILABLE = True
-    except ImportError:
-        TIMEZONE_AVAILABLE = False
 
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
-from flask_sqlalchemy import SQLAlchemy
-from flask_migrate import Migrate
-from flask_wtf import FlaskForm
-from wtforms import StringField, PasswordField, SelectField, IntegerField, BooleanField, TextAreaField
-from wtforms.validators import DataRequired, NumberRange
+import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-import atexit
+from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
+from flask_migrate import Migrate
+from flask_sqlalchemy import SQLAlchemy
+from flask_wtf import FlaskForm
 from werkzeug.middleware.proxy_fix import ProxyFix
+from wtforms import (BooleanField, IntegerField, PasswordField, SelectField,
+                     StringField, TextAreaField)
+from wtforms.validators import DataRequired, NumberRange
 
-from library_adapters import LibraryAdapterFactory
-from renewal_engine import RenewalEngine
+from error_handling import StandardizedLogger, with_error_handling
+from icons import icon
+from paths import DATA_DIR, DEFAULT_DB_URL
+import notify
+from renewer import State, renew
 
-# Application version
-__version__ = '0.6.0'
+__version__ = '1.1.0'
 
-# Validate configuration at startup
-if __name__ == '__main__':
-    # Only validate on direct execution, not on import
-    config_valid = validate_startup_config()
-    if not config_valid:
-        exit(1)
-
-# Get validated configuration
-validated_config = get_validated_config()
-
-# Track startup time
 startup_time = datetime.utcnow()
 
-# Initialize Flask app
+
+def _resolve_secret_key() -> str:
+    """Get SECRET_KEY from env, or generate-and-persist one for self-hosted
+    deployments that didn't bother to set one. Persisting beats regenerating
+    each restart (which would invalidate every active session)."""
+    val = os.environ.get('SECRET_KEY')
+    if val:
+        return val
+    keyfile = os.path.join(DATA_DIR, 'secret_key')
+    if os.path.isfile(keyfile):
+        with open(keyfile) as f:
+            return f.read().strip()
+    new_key = secrets.token_urlsafe(48)
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(keyfile, 'w') as f:
+        f.write(new_key)
+    os.chmod(keyfile, 0o600)
+    return new_key
+
+
 app = Flask(__name__)
-app.config['SECRET_KEY'] = validated_config.get('SECRET_KEY', os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production'))
-app.config['SQLALCHEMY_DATABASE_URI'] = validated_config.get('DATABASE_URL', os.environ.get('DATABASE_URL', 'sqlite:////app/data/newspaparr.db'))
+app.config['SECRET_KEY'] = _resolve_secret_key()
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', DEFAULT_DB_URL)
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['TEMPLATES_AUTO_RELOAD'] = True  # so dev edits to templates reflect without bouncing gunicorn
+
+# Make {{ icon('name') }} available in every template without per-template imports
+app.jinja_env.globals['icon'] = icon
 
 
 # Configure app to work behind proxy (simplified to avoid double-processing)
@@ -90,6 +96,18 @@ def inject_datetime():
     return {'datetime': datetime}
 
 # Add timezone filter for converting UTC to local time
+@app.template_filter('strip_status_emoji')
+def strip_status_emoji_filter(text):
+    """Strip leading status emojis (✅ ❌ ⚠️ 🎯 🔑 🍪 etc.) from a renewal-log
+    message. The UI conveys status via colored dots, so the emoji prefix is
+    redundant — and the runtime font on some hosts has no emoji glyphs and
+    renders them as boxes."""
+    if not text:
+        return text
+    import re
+    return re.sub(r'^[☀-➿\U0001F300-\U0001FAFF️\s]+', '', text)
+
+
 @app.template_filter('localtime')
 def localtime_filter(dt):
     """Convert UTC datetime to local timezone"""
@@ -108,16 +126,23 @@ def localtime_filter(dt):
     except:
         return dt
 
-# Add version and uptime context
+# Add version, uptime, and sidebar-badge counts to every template
 @app.context_processor
 def inject_app_info():
     uptime = datetime.utcnow() - startup_time
     hours = int(uptime.total_seconds() // 3600)
     minutes = int((uptime.total_seconds() % 3600) // 60)
     uptime_str = f"{hours}h {minutes}m" if hours > 0 else f"{minutes}m"
+    # Account count powers the sidebar badge; render once for every page,
+    # not just the dashboard. Cheap query, runs once per request.
+    try:
+        account_count = Account.query.count()
+    except Exception:
+        account_count = 0  # DB not yet initialized (e.g., first migration)
     return {
         'app_version': __version__,
-        'app_uptime': uptime_str
+        'app_uptime': uptime_str,
+        'account_count': account_count,
     }
 
 # Initialize database
@@ -187,40 +212,12 @@ class Account(db.Model):
     last_renewal = db.Column(db.DateTime)
     next_renewal = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    profile_captured_at = db.Column(db.DateTime, nullable=True)
     
     @property
     def display_name(self):
-        """Get display name with newspaper type"""
-        newspaper_labels = {
-            'nyt': 'NYT',
-            'wsj': 'WSJ'
-        }
-        label = newspaper_labels.get(self.newspaper_type, self.newspaper_type.upper())
-        return f"{self.name} ({label})"
-    
-    @property
-    def newspaper_username(self):
-        """Generic property for newspaper username"""
-        return self.username
-    
-    @property
-    def auth_display(self):
-        """Display text for authentication method"""
-        return self.username
-    
-    @newspaper_username.setter
-    def newspaper_username(self, value):
-        self.username = value
-    
-    @property
-    def newspaper_password(self):
-        """Generic property for newspaper password"""
-        return self.password
-    
-    @newspaper_password.setter  
-    def newspaper_password(self, value):
-        self.password = value
-    
+        return f"{self.name} (NYT)"
+
     @property
     def effective_renewal_interval(self):
         """Get the effective renewal interval - account override or library default"""
@@ -242,7 +239,6 @@ class LibraryConfig(db.Model):
     type = db.Column(db.String(50), nullable=False)
     homepage = db.Column(db.String(500))
     nyt_url = db.Column(db.String(500))  # Direct NYT access URL
-    wsj_url = db.Column(db.String(500))  # Direct WSJ access URL
     custom_config = db.Column(db.Text)
     default_renewal_hours = db.Column(db.Integer, default=24)
     active = db.Column(db.Boolean, default=True)
@@ -260,32 +256,22 @@ class RenewalLog(db.Model):
 
 # Forms
 class AccountForm(FlaskForm):
-    """Form for account configuration"""
+    """Form for account configuration. NYT credentials are optional —
+    cookies captured via the dashboard's noVNC capture flow are the primary
+    auth path; credentials only matter as a fallback if cookies expire."""
     name = StringField('Account Name', validators=[DataRequired()])
     library_type = SelectField('Library Type', choices=[])
     library_username = StringField('Library Username/Card Number', validators=[DataRequired()])
     library_password = PasswordField('Library Password/PIN', validators=[DataRequired()])
-    newspaper_type = SelectField('Newspaper', choices=[
-        ('nyt', 'New York Times'),
-        ('wsj', 'Wall Street Journal')
-    ], default='nyt')
-    username = StringField('Newspaper Email', validators=[DataRequired()])
-    password = PasswordField('Newspaper Password', validators=[DataRequired()])
     renewal_interval = IntegerField('Renewal Interval Override (hours)', validators=[])
     active = BooleanField('Active', default=True)
 
 class EditAccountForm(FlaskForm):
-    """Form for editing account configuration - passwords optional"""
+    """Form for editing account configuration."""
     name = StringField('Account Name', validators=[DataRequired()])
     library_type = SelectField('Library Type', choices=[])
     library_username = StringField('Library Username/Card Number', validators=[DataRequired()])
-    library_password = PasswordField('Library Password/PIN', validators=[])  # No DataRequired
-    newspaper_type = SelectField('Newspaper', choices=[
-        ('nyt', 'New York Times'),
-        ('wsj', 'Wall Street Journal')
-    ], default='nyt')
-    username = StringField('Newspaper Email', validators=[DataRequired()])
-    password = PasswordField('Newspaper Password', validators=[])  # No DataRequired
+    library_password = PasswordField('Library Password/PIN', validators=[])  # editable but optional
     renewal_interval = IntegerField('Renewal Interval Override (hours)', validators=[])
     active = BooleanField('Active', default=True)
 
@@ -296,12 +282,15 @@ class LibraryForm(FlaskForm):
         ('generic_oclc', 'OCLC Library'),
         ('custom', 'Custom Library')
     ])
-    nyt_url = StringField('NYT Access URL', validators=[DataRequired()], description='Direct URL for NYT access through your library')
-    wsj_url = StringField('WSJ Access URL', validators=[DataRequired()], description='Direct URL for WSJ access through your library')
+    nyt_url = StringField('NYT Access URL', validators=[DataRequired()],
+                         description='Direct URL for NYT access through your library')
     homepage = StringField('Library Homepage (optional)', description='Main library website URL for linking')
-    default_renewal_hours = IntegerField('Default Renewal Hours', validators=[NumberRange(min=1, max=168)], default=24, description='Renewals will run at this interval + 1 minute')
+    default_renewal_hours = IntegerField('Default Renewal Hours',
+                                          validators=[NumberRange(min=1, max=168)], default=24,
+                                          description='Renewals will run at this interval + 1 minute')
     active = BooleanField('Active', default=True)
-    custom_config = TextAreaField('Additional Configuration (JSON)', description='Optional: JSON configuration for advanced settings')
+    custom_config = TextAreaField('Additional Configuration (JSON)',
+                                   description='Optional: JSON configuration for advanced settings')
 
 # Routes
 @app.route('/')
@@ -344,13 +333,12 @@ def index():
     # Create libraries mapping for template
     libraries = {lib.type: lib.name for lib in LibraryConfig.query.all()}
     
-    return render_template('dashboard.html', 
+    return render_template('dashboard.html',
                          accounts=accounts,
                          recent_logs=recent_logs,
                          total_accounts=total_accounts,
                          active_accounts=active_accounts,
                          success_rate=success_rate,
-                         account_count=total_accounts,
                          next_renewal=next_renewal,
                          libraries=libraries,
                          account_statuses=account_statuses)
@@ -392,15 +380,15 @@ def add_account():
             flash('Selected library configuration not found', 'error')
             return redirect(url_for('add_account'))
         
-        # Create account
+        # Create account (NYT-only as of v1.0.0)
         account = Account(
             name=form.name.data,
             library_type=form.library_type.data,
             library_username=form.library_username.data,
             library_password=form.library_password.data,
-            newspaper_type=form.newspaper_type.data,
-            username=form.username.data,
-            password=form.password.data,
+            newspaper_type='nyt',
+            username=None,
+            password=None,
             renewal_hours=library_config.default_renewal_hours,
             renewal_interval=form.renewal_interval.data if form.renewal_interval.data else None,
             active=form.active.data
@@ -423,45 +411,35 @@ def edit_account(id):
     """Edit existing account"""
     account = Account.query.get_or_404(id)
     
-    # Store original passwords to preserve if not changed
+    # Store original library password to preserve if not changed
     original_library_password = account.library_password
-    original_password = account.password
-    
-    form = EditAccountForm(obj=account)  # Use EditAccountForm which has optional passwords
-    
+
+    form = EditAccountForm(obj=account)
+
     # Get available active library configurations from database
     library_configs = LibraryConfig.query.filter_by(active=True).all()
     form.library_type.choices = [(config.type, config.name) for config in library_configs]
-    
-    # Clear password fields on GET to show placeholders
+
+    # Clear password field on GET to show placeholder
     if request.method == 'GET':
         form.library_password.data = ''
-        form.password.data = ''
-    
+
     if form.validate_on_submit():
         # Find the library configuration to get renewal hours
         library_config = LibraryConfig.query.filter_by(type=form.library_type.data).first()
         if not library_config:
             flash('Selected library configuration not found', 'error')
             return redirect(url_for('edit_account', id=id))
-        
+
         account.name = form.name.data
         account.library_type = form.library_type.data
         account.library_username = form.library_username.data
-        
-        # Only update passwords if new values provided
+
+        # Only update library password if a new value was provided
         if form.library_password.data:
             account.library_password = form.library_password.data
         else:
             account.library_password = original_library_password
-            
-        account.newspaper_type = form.newspaper_type.data
-        account.username = form.username.data
-        
-        if form.password.data:
-            account.password = form.password.data
-        else:
-            account.password = original_password
             
         account.renewal_hours = library_config.default_renewal_hours
         account.renewal_interval = form.renewal_interval.data if form.renewal_interval.data else None
@@ -499,63 +477,134 @@ def delete_account(id):
     flash('Account deleted successfully!', 'success')
     return redirect(url_for('accounts'))
 
+def _execute_renewal(account):
+    """Run a renewal, write the RenewalLog row, schedule the next attempt,
+    fire notifications on state transitions.
+
+    Returns the renewer.RenewalResult."""
+    library = LibraryConfig.query.filter_by(type=account.library_type).first()
+    if library is None or not library.nyt_url:
+        msg = "No library configuration / NYT URL for this account."
+        _record_renewal_log(account, success=False, message=msg, duration_ms=0)
+        notify.notify_renewal_failed(account.name, msg)
+        return None
+
+    # Look up previous attempt so we can detect transitions (failed→ok, ok→failed).
+    previous = (RenewalLog.query.filter_by(account_id=account.id)
+                .order_by(RenewalLog.id.desc()).first())
+    was_failing = previous is not None and not previous.success
+
+    result = renew(
+        library_url=library.nyt_url,
+        library_user=account.library_username,
+        library_pass=account.library_password,
+        account_id=account.id,
+    )
+
+    _record_renewal_log(account, success=result.success, message=result.message,
+                        duration_ms=result.duration_ms, result_url=result.final_url)
+
+    account.last_renewal = datetime.utcnow()
+    if result.success and result.expiration:
+        account.next_renewal = result.expiration + timedelta(minutes=1)
+    else:
+        # Fall back to library default + 1 minute (covers both
+        # success-without-expiration and any failure — failed renewals retry
+        # on the same cadence).
+        account.next_renewal = (datetime.utcnow()
+                                + timedelta(hours=account.effective_renewal_interval, minutes=1))
+    db.session.commit()
+    schedule_account_renewal(account)
+
+    # Notify only on transitions, not on every attempt — avoids spamming.
+    if not result.success:
+        notify.notify_renewal_failed(account.name, result.message)
+    elif was_failing:
+        notify.notify_renewal_recovered(account.name)
+
+    return result
+
+
+def _record_renewal_log(account, *, success, message, duration_ms, result_url=None):
+    log = RenewalLog(
+        account_id=account.id,
+        success=success,
+        message=message,
+        duration_seconds=int((duration_ms or 0) / 1000),
+        result_url=result_url,
+    )
+    db.session.add(log)
+    db.session.commit()
+
+
 @app.route('/accounts/<int:id>/renew', methods=['POST'])
 def manual_renewal(id):
-    """Manually trigger renewal for specific account"""
+    """Manually trigger renewal for an account."""
     account = Account.query.get_or_404(id)
     logger = StandardizedLogger(__name__)
-    
     try:
-        # Always use GUI mode with virtual display for better anti-detection
-        headless = False
-        
-        renewal_engine = RenewalEngine(headless=headless)
-        success, result_url, expiration_datetime = renewal_engine.renew_account(account)
-        
-        if success:
-            # Update scheduling based on expiration date if available
-            if expiration_datetime:
-                account.next_renewal = expiration_datetime + timedelta(minutes=1)
-                # Convert to local time for logging
-                local_next = localtime_filter(account.next_renewal)
-                logger.info(f"📅 Updated next renewal for {account.name} ({account.newspaper_type.upper()}) based on expiration: {local_next.strftime('%Y-%m-%d %H:%M:%S %Z')}")
-            else:
-                # Fallback: 24 hours + 1 minute from now (successful renewal time)
-                account.next_renewal = datetime.utcnow() + timedelta(hours=24, minutes=1)
-                # Convert to local time for logging
-                local_next = localtime_filter(account.next_renewal)
-                logger.info(f"⏰ Updated next renewal for {account.name} ({account.newspaper_type.upper()}) using 24h+1m interval: {local_next.strftime('%Y-%m-%d %H:%M:%S %Z')}")
-            
-            # Update last renewal time and reschedule
-            account.last_renewal = datetime.utcnow()
-            db.session.commit()
-            schedule_account_renewal(account)
-            
-            # Get the latest log entry to show the result
-            latest_log = RenewalLog.query.filter_by(account_id=account.id).order_by(RenewalLog.timestamp.desc()).first()
-            if latest_log and latest_log.result_url:
-                flash(f'Renewal completed for {account.name}. <a href="{latest_log.result_url}" target="_blank" class="underline">View result page</a>', 'success')
-            else:
-                flash(f'Renewal completed for {account.name}', 'success')
-            
-            logger.info("Manual renewal completed successfully", account=account.name)
+        result = _execute_renewal(account)
+        if result is None:
+            flash(f"Renewal failed for {account.name} — library config missing.", "error")
+        elif result.success:
+            flash(f"Renewal completed for {account.name} ({result.duration_ms}ms).", "success")
+            logger.info(f"Manual renewal succeeded for {account.name}: {result.message}")
         else:
-            flash(f'Renewal failed for {account.name}', 'error')
-            logger.warning("Manual renewal failed", account=account.name)
-        
+            flash(f"Renewal failed for {account.name}: {result.message}", "error")
+            logger.warning(f"Manual renewal failed for {account.name}: {result.message}")
     except Exception as e:
-        logger.error("Manual renewal encountered error", error=e, account=account.name)
-        flash(f'Renewal failed for {account.name} - {str(e)}', 'error')
-    
+        logger.error(f"Manual renewal crashed for {account.name}: {e}")
+        flash(f"Renewal crashed for {account.name}: {e}", "error")
     return redirect(url_for('accounts'))
+
+
+# --- Capture sessions (in-dashboard browser login) ---
+
+NYT_LOGIN_URL = 'https://myaccount.nytimes.com/auth/login'
+
+
+@app.route('/accounts/<int:id>/capture')
+def capture_view(id):
+    account = Account.query.get_or_404(id)
+    return render_template('capture_view.html', account=account)
+
+
+@app.route('/accounts/<int:id>/capture/start', methods=['POST'])
+def capture_start(id):
+    from capture_session import CaptureSessionManager
+    account = Account.query.get_or_404(id)
+    try:
+        session = CaptureSessionManager().start(account.id, NYT_LOGIN_URL)
+    except RuntimeError as e:
+        return jsonify(error=str(e)), 409
+    return jsonify(token=session.token, ws_port=session.ws_port)
+
+
+@app.route('/accounts/<int:id>/capture/<token>/finish', methods=['POST'])
+def capture_finish(id, token):
+    from capture_session import CaptureSessionManager
+    payload = request.get_json(silent=True) or {}
+    save = bool(payload.get('save'))
+    session = CaptureSessionManager().finish(token)
+    if session is None or session.account_id != id:
+        return jsonify(error='session not found'), 404
+    if save:
+        account = Account.query.get(id)
+        if account is not None:
+            account.profile_captured_at = datetime.utcnow()
+            db.session.commit()
+    return jsonify(ok=True, saved=save)
 
 
 @app.route('/libraries')
 def libraries():
     """Library configuration page"""
     configs = LibraryConfig.query.all()
-    accounts = Account.query.all()
-    return render_template('libraries.html', configs=configs, accounts=accounts)
+    # Build {library_type: account_count} so the template can display per-config usage
+    counts = {}
+    for a in Account.query.all():
+        counts[a.library_type] = counts.get(a.library_type, 0) + 1
+    return render_template('libraries.html', configs=configs, accounts=counts)
 
 @app.route('/libraries/add', methods=['GET', 'POST'])
 def add_library():
@@ -567,7 +616,6 @@ def add_library():
             name=form.name.data,
             type=form.type.data,
             nyt_url=form.nyt_url.data,
-            wsj_url=form.wsj_url.data,
             homepage=form.homepage.data,
             custom_config=form.custom_config.data,
             default_renewal_hours=form.default_renewal_hours.data,
@@ -605,7 +653,6 @@ def edit_library(id):
             'name': library.name,
             'type': library.type,
             'nyt_url': library.nyt_url or '',
-            'wsj_url': library.wsj_url or '',
             'homepage': library.homepage,
             'default_renewal_hours': library.default_renewal_hours,
             'active': library.active,
@@ -620,7 +667,6 @@ def edit_library(id):
         library.name = form.name.data
         library.type = form.type.data
         library.nyt_url = form.nyt_url.data
-        library.wsj_url = form.wsj_url.data
         library.homepage = form.homepage.data
         library.default_renewal_hours = form.default_renewal_hours.data
         library.active = form.active.data
@@ -667,7 +713,8 @@ def logs():
     logs = RenewalLog.query.order_by(RenewalLog.timestamp.desc()).paginate(
         page=page, per_page=50, error_out=False
     )
-    return render_template('logs.html', logs=logs)
+    accounts = {a.id: a for a in Account.query.all()}
+    return render_template('logs.html', logs=logs, accounts=accounts)
 
 @app.route('/api/logs/clear', methods=['POST'])
 def clear_logs():
@@ -721,56 +768,16 @@ def api_status():
     """API endpoint for system status"""
     accounts = Account.query.all()
     active_jobs = len(scheduler.get_jobs()) if scheduler else 0
-    
-    # Check proxy status
-    try:
-        from on_demand_proxy import get_proxy_manager
-        proxy_manager = get_proxy_manager()
-        proxy_status = {
-            'running': proxy_manager.is_proxy_running(),
-            'type': 'on-demand',
-            'security': 'enhanced'
-        }
-    except Exception:
-        proxy_status = {
-            'running': False,
-            'type': 'on-demand',
-            'security': 'enhanced'
-        }
-    
+
     status = {
         'total_accounts': len(accounts),
         'active_accounts': len([a for a in accounts if a.active]),
         'scheduled_jobs': active_jobs,
-        'proxy_status': proxy_status,
         'system_status': 'running',
         'last_check': datetime.utcnow().isoformat()
     }
-    
-    return jsonify(status)
 
-@app.route('/api/config')
-def api_config():
-    """API endpoint for configuration validation"""
-    from config_validation import ConfigValidator
-    
-    validator = ConfigValidator()
-    result = validator.validate_config()
-    
-    # Create safe config (mask sensitive values)
-    safe_config = {}
-    for key, value in result.config.items():
-        if key in ['SECRET_KEY', 'CAPSOLVER_API_KEY'] and value:
-            safe_config[key] = f"{str(value)[:8]}..." if len(str(value)) > 8 else "***"
-        else:
-            safe_config[key] = value
-    
-    return jsonify({
-        'is_valid': result.is_valid,
-        'errors': result.errors,
-        'warnings': result.warnings,
-        'config': safe_config
-    })
+    return jsonify(status)
 
 @app.route('/health')
 @app.route('/api/health')
@@ -784,21 +791,12 @@ def health_check():
         except Exception:
             db_healthy = False
         
-        # Check proxy status
-        proxy_healthy = True
-        try:
-            from on_demand_proxy import get_proxy_manager
-            proxy_manager = get_proxy_manager()
-            proxy_healthy = proxy_manager.is_proxy_running()
-        except Exception:
-            proxy_healthy = False
-        
         # Check scheduler
         scheduler_healthy = scheduler is not None and scheduler.running
-        
+
         # Overall health
         is_healthy = db_healthy and scheduler_healthy
-        
+
         health_status = {
             'status': 'healthy' if is_healthy else 'unhealthy',
             'timestamp': datetime.utcnow().isoformat(),
@@ -807,7 +805,6 @@ def health_check():
             'checks': {
                 'database': 'healthy' if db_healthy else 'unhealthy',
                 'scheduler': 'healthy' if scheduler_healthy else 'unhealthy',
-                'proxy': 'healthy' if proxy_healthy else 'unhealthy'
             }
         }
         
@@ -947,7 +944,7 @@ def schedule_account_renewal(account):
             args=[account.id],
             replace_existing=True
         )
-        logger.info(f"📅 Scheduled renewal for {account.name} ({account.newspaper_type.upper()}) at {next_run}")
+        logger.info(f"📅 Scheduled renewal for {account.name} at {next_run}")
     else:
         # Fallback to interval-based scheduling using effective interval
         scheduler.add_job(
@@ -957,43 +954,30 @@ def schedule_account_renewal(account):
             args=[account.id],
             replace_existing=True
         )
-        logger.info(f"⏰ Scheduled renewal for {account.name} ({account.newspaper_type.upper()}) every {account.effective_renewal_interval} hours")
+        logger.info(f"⏰ Scheduled renewal for {account.name} every {account.effective_renewal_interval} hours")
 
 def run_account_renewal(account_id):
-    """Run renewal for a specific account (called by scheduler)"""
+    """Run renewal for a specific account (called by scheduler)."""
     with app.app_context():
         account = Account.query.get(account_id)
         if not account or not account.active:
             return
-
         try:
-            # Always use GUI mode with virtual display for better anti-detection
-            headless = False
-            renewal_engine = RenewalEngine(headless=headless)
-            success, result_url, expiration_datetime = renewal_engine.renew_account(account)
-
-            # Update renewal tracking
-            account.last_renewal = datetime.utcnow()
-
-            # Use expiration date + 1 minute if available, otherwise fall back to 24h intervals
-            if success and expiration_datetime:
-                # Schedule next renewal for 1 minute after pass expires
-                account.next_renewal = expiration_datetime + timedelta(minutes=1)
-                logger.info(f"📅 Scheduled next renewal for {account.name} ({account.newspaper_type.upper()}) based on expiration: {account.next_renewal}")
+            result = _execute_renewal(account)
+            if result is None:
+                logger.warning(f"Scheduled renewal skipped for {account.name} — library config missing.")
+            elif result.success:
+                logger.info(f"Scheduled renewal succeeded for {account.name} ({result.duration_ms}ms)")
             else:
-                # Fallback to intervals + 1 minute when no expiration date available
-                account.next_renewal = datetime.utcnow() + timedelta(hours=account.effective_renewal_interval, minutes=1)
-                logger.info(f"⏰ Scheduled next renewal for {account.name} ({account.newspaper_type.upper()}) using {account.effective_renewal_interval}h 1m interval: {account.next_renewal}")
-
-            db.session.commit()
-
+                logger.warning(f"Scheduled renewal failed for {account.name}: {result.message}")
         except Exception as e:
-            logger.error(f"Error during scheduled renewal for {account.name}: {str(e)}")
-            # On error, still schedule next attempt using the fallback interval
+            logger.error(f"Scheduled renewal crashed for {account.name}: {e}")
+            # Best-effort: keep the schedule rolling
             try:
-                account.next_renewal = datetime.utcnow() + timedelta(hours=account.effective_renewal_interval, minutes=1)
+                account.next_renewal = (datetime.utcnow()
+                                        + timedelta(hours=account.effective_renewal_interval, minutes=1))
                 db.session.commit()
-                logger.info(f"⏰ Scheduled retry for {account.name} ({account.newspaper_type.upper()}) using {account.effective_renewal_interval}h 1m interval despite error")
+                logger.info(f"⏰ Scheduled retry for {account.name} using {account.effective_renewal_interval}h 1m interval despite error")
             except Exception as commit_error:
                 logger.error(f"Failed to update next_renewal after error: {commit_error}")
 
@@ -1057,7 +1041,19 @@ def init_db():
             except Exception as e:
                 logger.error(f"renewal_interval migration failed: {e}")
                 db.session.rollback()
-        
+
+        # Profile capture column (added 2026-05 for in-dashboard noVNC capture)
+        try:
+            db.session.execute(db.text("SELECT profile_captured_at FROM account LIMIT 1"))
+        except Exception:
+            try:
+                logger.info("Adding profile_captured_at column to account table")
+                db.session.execute(db.text("ALTER TABLE account ADD COLUMN profile_captured_at DATETIME"))
+                db.session.commit()
+            except Exception as e:
+                logger.error(f"profile_captured_at migration failed: {e}")
+                db.session.rollback()
+
         # Now create/update all tables
         db.create_all()
         
@@ -1077,7 +1073,7 @@ def create_app():
                 active_accounts = Account.query.filter_by(active=True).all()
                 for account in active_accounts:
                     schedule_account_renewal(account)
-                    logger.info(f"📅 Scheduled renewal for {account.name} ({account.newspaper_type.upper()})")
+                    logger.info(f"📅 Scheduled renewal for {account.name}")
                 
                 logger.info(f"✅ Scheduled {len(active_accounts)} active accounts for renewal")
             except Exception as e:
