@@ -28,7 +28,7 @@ from wtforms import (BooleanField, IntegerField, PasswordField, SelectField,
 from wtforms.validators import DataRequired, NumberRange
 
 from icons import icon
-from paths import DATA_DIR, DEFAULT_DB_URL
+from paths import DATA_DIR, DEFAULT_DB_URL, LOGS_DIR, SCREENSHOTS_DIR
 import notify
 from renewer import State, renew
 from secrets_at_rest import EncryptedString, migrate_plaintext_rows
@@ -162,24 +162,20 @@ import os
 
 # Only configure logging if not already configured (e.g., when running directly, not via wsgi)
 if not logging.getLogger().handlers:
-    # Create logs directory in data (already mounted volume)
-    logs_dir = os.path.join(os.path.dirname(__file__), 'data', 'logs')
-    os.makedirs(logs_dir, exist_ok=True)
+    os.makedirs(LOGS_DIR, exist_ok=True)
 
     # Configure root logger
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
-            # Console handler
             logging.StreamHandler(),
-            # File handler with rotation
             logging.handlers.RotatingFileHandler(
-                os.path.join(logs_dir, 'newspaparr.log'),
-                maxBytes=10*1024*1024,  # 10MB
-                backupCount=5
-            )
-        ]
+                os.path.join(LOGS_DIR, 'newspaparr.log'),
+                maxBytes=10 * 1024 * 1024,
+                backupCount=5,
+            ),
+        ],
     )
     
     # Quiet down chatty libraries
@@ -187,7 +183,7 @@ if not logging.getLogger().handlers:
     logging.getLogger('urllib3').setLevel(logging.WARNING)
 
     logger = logging.getLogger(__name__)
-    logger.info(f"🗂️  Logging initialized from app.py - files will be saved to {logs_dir}")
+    logger.info(f"🗂️  Logging initialized — files will be saved to {LOGS_DIR}")
 else:
     logger = logging.getLogger(__name__)
     logger.info("📝 Logging already configured, using existing configuration")
@@ -737,38 +733,34 @@ def logs():
 def clear_logs():
     """Clear all renewal logs and ALL screenshot directories"""
     try:
-        # Clear all renewal logs from database
         deleted_logs = RenewalLog.query.count()
         RenewalLog.query.delete()
         db.session.commit()
-        
-        # Delete ALL screenshot/HTML directories (not just ones with logs)
-        screenshots_dir = os.path.join(os.path.dirname(__file__), 'data', 'debug', 'screenshots')
+
+        # Sweep any v0.5-era screenshot directories. The HTTP-only renewer
+        # doesn't produce screenshots, so this is purely a one-time legacy
+        # cleanup; new installs will find the dir empty or absent.
         deleted_dirs = 0
-        
-        if os.path.exists(screenshots_dir):
+        if os.path.exists(SCREENSHOTS_DIR):
             import shutil
-            # Get all directories in screenshots folder
-            for item in os.listdir(screenshots_dir):
-                if item.startswith('.'):  # Skip hidden files like .DS_Store
+            for item in os.listdir(SCREENSHOTS_DIR):
+                if item.startswith('.'):
                     continue
-                    
-                dir_path = os.path.join(screenshots_dir, item)
+                dir_path = os.path.join(SCREENSHOTS_DIR, item)
                 if os.path.isdir(dir_path):
                     try:
                         shutil.rmtree(dir_path)
                         deleted_dirs += 1
-                        logger.info(f"🗑️  Deleted attempt directory: {item}")
-                    except Exception as e:
-                        logger.warning(f"Failed to delete directory {item}: {str(e)}")
-        
-        logger.info(f"🧹 Manual cleanup: cleared {deleted_logs} log entries and {deleted_dirs} screenshot directories")
-        
+                    except OSError as e:
+                        logger.warning(f"Failed to delete legacy screenshot dir {item}: {e}")
+
+        logger.info(f"🧹 Cleared {deleted_logs} log entries (+{deleted_dirs} legacy screenshot dirs)")
+
         return jsonify({
             'success': True,
-            'message': f'Cleared {deleted_logs} log entries and {deleted_dirs} screenshot directories',
+            'message': f'Cleared {deleted_logs} log entries',
             'deleted_logs': deleted_logs,
-            'deleted_directories': deleted_dirs
+            'deleted_directories': deleted_dirs,
         })
         
     except Exception as e:
@@ -892,36 +884,24 @@ def api_account_logs(id):
 
 @app.route('/api/screenshots/<path:filepath>')
 def serve_screenshot(filepath):
-    """Serve screenshot files from debug directory (supports subfolders)"""
+    """Serve a v0.5-era debug screenshot.
+
+    The HTTP-only renewer doesn't produce screenshots, so this only
+    matters for users with legacy logs that still reference image paths.
+    Kept around so old log entries still link to their images."""
     try:
         from flask import send_from_directory
-        import os
-        
-        # Construct the path to the screenshots directory
-        screenshots_dir = os.path.join(os.path.dirname(__file__), 'data', 'debug', 'screenshots')
-        
-        # Security check: ensure filepath is safe
+
+        # Path-traversal guard
         if '..' in filepath or filepath.startswith('/') or not filepath.endswith('.png'):
             return jsonify({'error': 'Invalid filepath'}), 400
-        
-        # Handle both old flat structure and new subfolder structure
-        screenshot_path = os.path.join(screenshots_dir, filepath)
-        
-        # If the file doesn't exist in subfolder, try the flat structure (backwards compatibility)
-        if not os.path.exists(screenshot_path):
-            # Extract just the filename for backwards compatibility
-            filename = os.path.basename(filepath)
-            flat_path = os.path.join(screenshots_dir, filename)
-            if os.path.exists(flat_path):
-                return send_from_directory(screenshots_dir, filename, mimetype='image/png')
-            else:
-                return jsonify({'error': 'Screenshot not found'}), 404
-        
-        # Serve from subfolder structure
-        directory = os.path.dirname(screenshot_path)
-        filename = os.path.basename(screenshot_path)
-        
-        return send_from_directory(directory, filename, mimetype='image/png')
+
+        full = os.path.join(SCREENSHOTS_DIR, filepath)
+        if not os.path.exists(full):
+            return jsonify({'error': 'Screenshot not found'}), 404
+        return send_from_directory(
+            os.path.dirname(full), os.path.basename(full), mimetype='image/png'
+        )
         
     except Exception as e:
         app.logger.error(f"Error serving screenshot {filepath}: {str(e)}")
