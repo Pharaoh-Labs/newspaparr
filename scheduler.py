@@ -33,6 +33,22 @@ def job_count() -> int:
     return len(_scheduler.get_jobs()) if _scheduler else 0
 
 
+def is_running() -> bool:
+    """True if the scheduler has been initialized and is running."""
+    return _scheduler is not None and _scheduler.running
+
+
+def cancel_account_renewal(account_id: int) -> None:
+    """Remove any scheduled renewal job for this account. Silent if there
+    is none — used after edits and on account deletion."""
+    if _scheduler is None:
+        return
+    try:
+        _scheduler.remove_job(f'renewal_{account_id}')
+    except Exception:
+        pass
+
+
 def init(app, execute_renewal_fn) -> None:
     """Bind this module to the Flask app and the renewal entry point.
 

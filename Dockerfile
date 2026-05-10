@@ -41,4 +41,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:1851/api/status || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["python3", "-m", "gunicorn", "--bind", "0.0.0.0:1851", "--workers", "1", "--timeout", "300", "wsgi:app"]
+# gunicorn auto-loads gunicorn.conf.py from the working directory.
+CMD ["python3", "-m", "gunicorn", "wsgi:app"]

@@ -20,7 +20,7 @@ from models import Account, LibraryConfig, RenewalLog
 from paths import DATA_DIR, DEFAULT_DB_URL, LOGS_DIR
 import notify
 import scheduler as _scheduler_mod
-from scheduler import schedule_account_renewal
+from scheduler import cancel_account_renewal, schedule_account_renewal
 from secrets_at_rest import migrate_plaintext_rows
 
 __version__ = '1.1.0'
@@ -346,13 +346,10 @@ def edit_account(id):
         account.next_renewal = utcnow() + timedelta(hours=account.effective_renewal_interval)
         
         db.session.commit()
-        
-        try:
-            scheduler.remove_job(f'renewal_{id}')
-        except:
-            pass
+
+        cancel_account_renewal(id)
         schedule_account_renewal(account)
-        
+
         flash('Account updated successfully!', 'success')
         return redirect(url_for('accounts'))
     
@@ -362,12 +359,9 @@ def edit_account(id):
 def delete_account(id):
     """Delete account"""
     account = Account.query.get_or_404(id)
-    
-    try:
-        scheduler.remove_job(f'renewal_{id}')
-    except:
-        pass
-    
+
+    cancel_account_renewal(id)
+
     db.session.delete(account)
     db.session.commit()
     
@@ -569,7 +563,7 @@ def health_check():
             db_healthy = False
         
         # Check scheduler
-        scheduler_healthy = scheduler is not None and scheduler.running
+        scheduler_healthy = _scheduler_mod.is_running()
 
         # Overall health
         is_healthy = db_healthy and scheduler_healthy
