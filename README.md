@@ -86,6 +86,8 @@ services:
 
 `SECRET_KEY` is auto-generated and persisted to `data/secret_key` (mode 0600) on first boot. Set it explicitly via the env var if you want to manage it yourself.
 
+> **Important:** library card passwords are encrypted at rest with a key derived from `SECRET_KEY` (Fernet, AES-128-CBC + HMAC-SHA256). If you lose or rotate `SECRET_KEY`, every stored library password becomes unreadable and you'll need to re-enter them. Keep `data/secret_key` in your backup set if you back up `data/`.
+
 ## How a renewal works
 
 1. **Library auth.** Newspaparr GETs your library's EZproxy URL, parses the login form, and POSTs `{user, pass, url}`.

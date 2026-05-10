@@ -31,6 +31,7 @@ from icons import icon
 from paths import DATA_DIR, DEFAULT_DB_URL
 import notify
 from renewer import State, renew
+from secrets_at_rest import EncryptedString, migrate_plaintext_rows
 
 __version__ = '1.1.0'
 
@@ -218,9 +219,9 @@ class Account(db.Model):
     name = db.Column(db.String(100), nullable=False)
     library_type = db.Column(db.String(50), nullable=False)
     library_username = db.Column(db.String(100), nullable=False)
-    library_password = db.Column(db.String(200), nullable=False)
+    library_password = db.Column(EncryptedString(500), nullable=False)
     username = db.Column(db.String(100), nullable=True)
-    password = db.Column(db.String(200), nullable=True)
+    password = db.Column(EncryptedString(500), nullable=True)
     newspaper_type = db.Column(db.String(20), nullable=False, default='nyt')
     
     renewal_hours = db.Column(db.Integer, default=24)
@@ -228,7 +229,7 @@ class Account(db.Model):
     active = db.Column(db.Boolean, default=True)
     last_renewal = db.Column(db.DateTime)
     next_renewal = db.Column(db.DateTime)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utcnow)
     profile_captured_at = db.Column(db.DateTime, nullable=True)
     
     @property
@@ -264,7 +265,7 @@ class RenewalLog(db.Model):
     """Renewal log model"""
     id = db.Column(db.Integer, primary_key=True)
     account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    timestamp = db.Column(db.DateTime, default=utcnow)
     success = db.Column(db.Boolean, nullable=False)
     message = db.Column(db.Text)
     duration_seconds = db.Column(db.Integer)
@@ -1072,7 +1073,15 @@ def init_db():
 
         # Now create/update all tables
         db.create_all()
-        
+
+        # One-shot at-rest encryption migration: re-encrypt any plaintext
+        # library_password rows left from <v1.2.0. Idempotent.
+        try:
+            migrate_plaintext_rows(db, Account)
+        except Exception as e:
+            logger.warning(f"plaintext-creds migration failed: {e}")
+            db.session.rollback()
+
 
 def create_app():
     """Application factory pattern"""
