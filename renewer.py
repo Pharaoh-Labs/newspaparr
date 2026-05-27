@@ -283,12 +283,21 @@ def _verify_subscription(account_id: int, provisional: RenewalResult,
                        final_url=provisional.final_url, started=started)
 
     # Find the ADA (All Digital Access) subscription — that's the library pass.
+    now = datetime.now(timezone.utc)
     expiry = None
     for sub in sub_info.get("subscriptions") or []:
         if "ADA" in (sub.get("bundleType") or ""):
             end = sub.get("endDate")
             if end:
-                expiry = _parse_iso(end)
+                parsed = _parse_iso(end)
+                # The data-layer caches ZUORA data and may return a stale past
+                # date immediately after a successful renewal. If the date is
+                # in the future, use it directly; otherwise fall back to a
+                # standard 24-hour window from now.
+                if parsed and parsed > now:
+                    expiry = parsed
+                else:
+                    expiry = now + timedelta(hours=24)
             break
 
     return _result(State.RENEWED, "NYT pass redeemed",
