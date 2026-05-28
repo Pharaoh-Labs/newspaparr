@@ -19,7 +19,7 @@
                 <th class="text-left font-medium px-5 py-3">Account</th>
                 <th class="text-left font-medium px-5 py-3 hidden md:table-cell">Library</th>
                 <th class="text-left font-medium px-5 py-3 hidden lg:table-cell">Last attempt</th>
-                <th class="text-left font-medium px-5 py-3 hidden lg:table-cell">Next</th>
+                <th class="text-left font-medium px-5 py-3 hidden lg:table-cell">Pass expires</th>
                 <th class="text-left font-medium px-5 py-3">Status</th>
                 <th class="text-right font-medium px-5 py-3">Actions</th>
             </tr>
@@ -49,7 +49,9 @@
                     {% if account.last_renewal %}{{ (account.last_renewal|localtime).strftime('%b %d %H:%M') }}{% else %}—{% endif %}
                 </td>
                 <td class="px-5 py-3.5 hidden lg:table-cell text-gray-600 dark:text-gray-400">
-                    {% if account.next_renewal %}{{ (account.next_renewal|localtime).strftime('%b %d %H:%M') }}{% else %}—{% endif %}
+                    {% if account.id in account_statuses and account_statuses[account.id].expiration %}
+                        {{ (account_statuses[account.id].expiration|localtime).strftime('%b %d %H:%M') }}
+                    {% else %}—{% endif %}
                 </td>
                 <td class="px-5 py-3.5">
                     {% if account.id in account_statuses %}

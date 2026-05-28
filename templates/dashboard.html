@@ -36,7 +36,7 @@
         <p class="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">Recent failures</p>
         {% set fails = recent_logs|selectattr('success', 'equalto', False)|list|length if recent_logs else 0 %}
         <p class="mt-1 text-2xl font-semibold {% if fails > 0 %}text-red-600 dark:text-red-400{% endif %}">{{ fails }}</p>
-        <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">in last logged attempts</p>
+        <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">in last 10 attempts</p>
     </div>
 </div>
 
@@ -60,6 +60,11 @@
                         {{ libraries.get(account.library_type, account.library_type) }}
                         {% if account.last_renewal %} · last {{ (account.last_renewal|localtime).strftime('%b %d %H:%M') }}{% endif %}
                     </p>
+                    {% if account.id in account_statuses and account_statuses[account.id].expiration %}
+                    <p class="text-xs text-gray-400 dark:text-gray-500">
+                        expires {{ (account_statuses[account.id].expiration|localtime).strftime('%b %d %H:%M') }}
+                    </p>
+                    {% endif %}
                 </div>
 
                 {% if account.id in account_statuses %}
@@ -100,7 +105,7 @@
                 <div class="flex-1 min-w-0">
                     {% set account = accounts|selectattr('id', 'equalto', log.account_id)|first %}
                     <p class="truncate">{{ account.display_name if account else 'Unknown' }}</p>
-                    <p class="text-xs text-gray-500 dark:text-gray-400">{{ (log.timestamp|localtime).strftime('%b %d %H:%M') }}</p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 truncate">{{ (log.timestamp|localtime).strftime('%b %d %H:%M') }} · {{ log.message or '—' }}</p>
                 </div>
             </li>
             {% endfor %}

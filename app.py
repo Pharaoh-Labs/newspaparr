@@ -224,12 +224,13 @@ def index():
             account_statuses[account.id] = {
                 'success': latest_log.success,
                 'message': latest_log.message,
-                'timestamp': latest_log.timestamp
+                'timestamp': latest_log.timestamp,
+                'expiration': latest_log.expiration,
             }
-    
+
     # Create libraries mapping for template
     libraries = {lib.type: lib.name for lib in LibraryConfig.query.all()}
-    
+
     return render_template('dashboard.html',
                          accounts=accounts,
                          recent_logs=recent_logs,
@@ -255,9 +256,10 @@ def accounts():
             account_statuses[account.id] = {
                 'success': latest_log.success,
                 'message': latest_log.message,
-                'timestamp': latest_log.timestamp
+                'timestamp': latest_log.timestamp,
+                'expiration': latest_log.expiration,
             }
-    
+
     libraries = {lib.type: lib.name for lib in LibraryConfig.query.all()}
     return render_template('accounts.html', accounts=accounts, libraries=libraries, account_statuses=account_statuses)
 
