@@ -14,7 +14,7 @@
                 <div class="space-y-4">
                     <div>
                         {{ form.name.label(class="label") }}
-                        {{ form.name(class="input", placeholder="e.g. Mina") }}
+                        {{ form.name(class="input", placeholder="e.g. Alex") }}
                         <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">A short label so you can tell accounts apart.</p>
                         {% if form.name.errors %}<p class="mt-1 text-xs text-red-600">{{ form.name.errors[0] }}</p>{% endif %}
                     </div>

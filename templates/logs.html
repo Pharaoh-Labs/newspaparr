@@ -50,6 +50,11 @@
                             {# Strip leading status emoji; the colored dot conveys status. #}
                             {{ (log.message|strip_status_emoji) if log.message else '—' }}
                         </p>
+                        {% if log.expiration %}
+                        <p class="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                            expires {{ (log.expiration|localtime).strftime('%b %d %H:%M') }}
+                        </p>
+                        {% endif %}
                     </td>
                     <td class="px-5 py-3 hidden lg:table-cell text-gray-600 dark:text-gray-400">
                         {% if log.duration_seconds %}{{ log.duration_seconds }}s{% else %}—{% endif %}
@@ -107,9 +112,13 @@ async function showLogDetail(id) {
         ? '<span class="pill bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">Success</span>'
         : '<span class="pill bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200">Failed</span>';
 
+    const expiryRow = log.expiration
+        ? `<div><div class="text-xs uppercase text-gray-500 dark:text-gray-400 mb-1">Pass expires</div><div>${new Date(log.expiration).toLocaleString()}</div></div>`
+        : '';
     const html = `
       <div class="flex items-center gap-3">${statusPill}<span class="text-gray-500 dark:text-gray-400">${ts} · ${dur}</span></div>
       <div><div class="text-xs uppercase text-gray-500 dark:text-gray-400 mb-1">Account</div><div>${log.account_name || 'Unknown'}</div></div>
+      ${expiryRow}
       <div><div class="text-xs uppercase text-gray-500 dark:text-gray-400 mb-1">Message</div>
         <div class="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md p-3 whitespace-pre-wrap text-xs font-mono">${log.message || '—'}</div></div>
     `;
