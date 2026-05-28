@@ -148,5 +148,8 @@ tools/
 # Claude Code working dir
 .claude/
 
+# Playwright MCP session captures
+.playwright-mcp/
+
 # Stale data backups (manually rotated; not source-controlled)
 data.bak-*/

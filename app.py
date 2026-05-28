@@ -604,6 +604,7 @@ def api_logs():
             'duration_seconds': log.duration_seconds,
             'account_id': log.account_id,
             'account_name': account.display_name if account else 'Unknown Account',
+            'expiration': localtime_filter(log.expiration).isoformat() if log.expiration else None,
         })
 
     return jsonify(log_data)
@@ -706,6 +707,18 @@ def init_db():
                 db.session.commit()
             except Exception as e:
                 logger.error(f"profile_captured_at migration failed: {e}")
+                db.session.rollback()
+
+        # Expiration column on renewal_log (added 2026-05 to surface real expiry date)
+        try:
+            db.session.execute(db.text("SELECT expiration FROM renewal_log LIMIT 1"))
+        except Exception:
+            try:
+                logger.info("Adding expiration column to renewal_log table")
+                db.session.execute(db.text("ALTER TABLE renewal_log ADD COLUMN expiration DATETIME"))
+                db.session.commit()
+            except Exception as e:
+                logger.error(f"renewal_log.expiration migration failed: {e}")
                 db.session.rollback()
 
         # Now create/update all tables

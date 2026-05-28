@@ -245,11 +245,19 @@ def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
 _NYT_DATA_LAYER = "https://a.nytimes.com/svc/nyt/data-layer"
 
 
+_VERIFY_RETRY_DELAYS = (5, 10, 20)  # seconds between attempts when cache is stale
+
+
 def _verify_subscription(account_id: int, provisional: RenewalResult,
                           *, started: datetime) -> RenewalResult:
     """Query the NYT data-layer API to confirm the subscription is active and
-    obtain the real expiry date. Returns a RENEWED result when active, or
-    falls back to the provisional result if the check fails or is inconclusive."""
+    obtain the real expiry date.
+
+    ZUORA data is cached in the data-layer and may be stale immediately after
+    renewal. We retry up to len(_VERIFY_RETRY_DELAYS)+1 times with short waits
+    until we see a future endDate. Falls back to the provisional result only if
+    the subscription-type check fails, or if all retries see a stale date (in
+    which case we use +24 h as a conservative fallback)."""
     cookies = extract_cookies(account_id, "nyt")
     if not cookies:
         return provisional
@@ -262,46 +270,54 @@ def _verify_subscription(account_id: int, provisional: RenewalResult,
         except Exception:
             pass
 
-    try:
-        with httpx.Client(cookies=jar, follow_redirects=True, timeout=15,
-                          headers={"User-Agent": DEFAULT_UA}) as client:
-            r = client.get(_NYT_DATA_LAYER)
-            data = r.json()
-    except Exception as e:
-        logger.warning("Subscription verify request failed: %s — using provisional", e)
-        return provisional
+    attempts = 1 + len(_VERIFY_RETRY_DELAYS)
+    for attempt in range(attempts):
+        if attempt > 0:
+            delay = _VERIFY_RETRY_DELAYS[attempt - 1]
+            logger.info("Data-layer returned stale endDate; retrying in %ds (attempt %d/%d)",
+                        delay, attempt + 1, attempts)
+            time.sleep(delay)
 
-    user = data.get("user") or {}
-    user_type = user.get("type", "")
-    sub_info = user.get("subInfo") or {}
+        try:
+            with httpx.Client(cookies=jar, follow_redirects=True, timeout=15,
+                              headers={"User-Agent": DEFAULT_UA}) as client:
+                r = client.get(_NYT_DATA_LAYER)
+                data = r.json()
+        except Exception as e:
+            logger.warning("Subscription verify request failed: %s — using provisional", e)
+            return provisional
 
-    if user_type not in ("sub", "lgn"):
-        logger.warning("Subscription verify: user.type=%s (not a subscriber)", user_type)
-        return _result(State.UNEXPECTED,
-                       f"NYT account shows no active subscription after renewal "
-                       f"(type={user_type}). Re-capture may be needed.",
-                       final_url=provisional.final_url, started=started)
+        user = data.get("user") or {}
+        user_type = user.get("type", "")
+        sub_info = user.get("subInfo") or {}
 
-    # Find the ADA (All Digital Access) subscription — that's the library pass.
-    now = datetime.now(timezone.utc)
-    expiry = None
-    for sub in sub_info.get("subscriptions") or []:
-        if "ADA" in (sub.get("bundleType") or ""):
-            end = sub.get("endDate")
-            if end:
-                parsed = _parse_iso(end)
-                # The data-layer caches ZUORA data and may return a stale past
-                # date immediately after a successful renewal. If the date is
-                # in the future, use it directly; otherwise fall back to a
-                # standard 24-hour window from now.
-                if parsed and parsed > now:
-                    expiry = parsed
-                else:
-                    expiry = now + timedelta(hours=24)
-            break
+        if user_type not in ("sub", "lgn"):
+            logger.warning("Subscription verify: user.type=%s (not a subscriber)", user_type)
+            return _result(State.UNEXPECTED,
+                           f"NYT account shows no active subscription after renewal "
+                           f"(type={user_type}). Re-capture may be needed.",
+                           final_url=provisional.final_url, started=started)
 
+        now = datetime.now(timezone.utc)
+        for sub in sub_info.get("subscriptions") or []:
+            if "ADA" in (sub.get("bundleType") or ""):
+                end = sub.get("endDate")
+                if end:
+                    parsed = _parse_iso(end)
+                    if parsed and parsed > now:
+                        logger.info("Data-layer confirmed ADA expiry: %s", parsed.isoformat())
+                        return _result(State.RENEWED, "NYT pass redeemed",
+                                       expiration=parsed,
+                                       final_url=provisional.final_url, started=started)
+                    logger.debug("Data-layer ADA endDate is stale: %s", end)
+                break  # found ADA sub but date is stale — retry outer loop
+
+    # All retries exhausted without a fresh date; use +24 h as safe fallback.
+    logger.warning("Data-layer ADA endDate still stale after %d attempts; using +24h fallback",
+                   attempts)
     return _result(State.RENEWED, "NYT pass redeemed",
-                   expiration=expiry, final_url=provisional.final_url, started=started)
+                   expiration=datetime.now(timezone.utc) + timedelta(hours=24),
+                   final_url=provisional.final_url, started=started)
 
 
 def _parse_iso(value: str) -> Optional[datetime]:
@@ -467,7 +483,7 @@ def _result(state: State, message: str, *,
             started: Optional[datetime] = None) -> RenewalResult:
     duration_ms = 0
     if started is not None:
-        duration_ms = int((datetime.now() - started).total_seconds() * 1000)
+        duration_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
     return RenewalResult(state, message, expiration, final_url, duration_ms)
 
 

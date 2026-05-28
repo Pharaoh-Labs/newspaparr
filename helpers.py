@@ -20,7 +20,8 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-def _record_renewal_log(account, *, success, message, duration_ms, result_url=None):
+def _record_renewal_log(account, *, success, message, duration_ms,
+                        result_url=None, expiration=None):
     """Append one RenewalLog row for this attempt."""
     log = RenewalLog(
         account_id=account.id,
@@ -28,6 +29,7 @@ def _record_renewal_log(account, *, success, message, duration_ms, result_url=No
         message=message,
         duration_seconds=int((duration_ms or 0) / 1000),
         result_url=result_url,
+        expiration=expiration.replace(tzinfo=None) if expiration else None,
     )
     db.session.add(log)
     db.session.commit()
@@ -63,6 +65,7 @@ def execute_renewal(account):
         account,
         success=result.success, message=result.message,
         duration_ms=result.duration_ms, result_url=result.final_url,
+        expiration=result.expiration,
     )
 
     account.last_renewal = utcnow()

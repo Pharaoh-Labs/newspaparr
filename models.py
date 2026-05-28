@@ -73,3 +73,4 @@ class RenewalLog(db.Model):
     message = db.Column(db.Text)
     duration_seconds = db.Column(db.Integer)
     result_url = db.Column(db.String(500))
+    expiration = db.Column(db.DateTime, nullable=True)
