@@ -70,7 +70,12 @@ def execute_renewal(account):
 
     account.last_renewal = utcnow()
     if result.success and result.expiration:
-        account.next_renewal = result.expiration + timedelta(minutes=1)
+        # Normalize to naive UTC — the DB column and every consumer
+        # (min() across accounts, utcnow() comparisons) expect naive.
+        expiration = result.expiration
+        if expiration.tzinfo is not None:
+            expiration = expiration.astimezone(timezone.utc).replace(tzinfo=None)
+        account.next_renewal = expiration + timedelta(minutes=1)
     else:
         # Cover both success-without-expiration and any failure — failed
         # renewals retry on the same cadence as successful ones.

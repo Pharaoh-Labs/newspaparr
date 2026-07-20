@@ -90,7 +90,7 @@ def renew(*, library_url: str, library_user: str, library_pass: str,
         except Exception as e:
             logger.debug("Skipping cookie %s: %s", c.get("name"), e)
 
-    started = datetime.now()
+    started = datetime.now(timezone.utc)
     headers = {
         "User-Agent": DEFAULT_UA,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",

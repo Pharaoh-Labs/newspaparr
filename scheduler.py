@@ -94,6 +94,9 @@ def schedule_account_renewal(account) -> None:
             func=_run_account_renewal,
             trigger=DateTrigger(run_date=next_run),
             id=job_id, args=[account.id], replace_existing=True,
+            # Run past-due jobs immediately instead of discarding them —
+            # otherwise renewals missed during downtime never fire again.
+            misfire_grace_time=None,
         )
         logger.info(f"📅 Scheduled renewal for {account.name} at {next_run}")
     else:
