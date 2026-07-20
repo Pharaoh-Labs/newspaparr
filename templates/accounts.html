@@ -66,10 +66,10 @@
                 <td class="px-5 py-3.5 text-right">
                     <div class="inline-flex items-center gap-1">
                         <button class="btn btn-ghost p-2" title="Renew now"
-                                onclick="Renewals.start({{ account.id }}, {{ account.display_name|tojson }})">{{ icon('refresh') }}</button>
+                                onclick='Renewals.start({{ account.id }}, {{ account.display_name|tojson }})'>{{ icon('refresh') }}</button>
                         <a href="{{ url_for('capture_view', id=account.id) }}" class="btn btn-ghost p-2" title="Capture session">{{ icon('key') }}</a>
                         <a href="{{ url_for('edit_account', id=account.id) }}" class="btn btn-ghost p-2" title="Edit">{{ icon('pencil') }}</a>
-                        <button class="btn btn-ghost p-2 text-red-600 hover:text-red-700 dark:text-red-400" title="Delete" onclick="confirmDelete({{ account.id }}, {{ account.display_name|tojson }})">{{ icon('trash') }}</button>
+                        <button class="btn btn-ghost p-2 text-red-600 hover:text-red-700 dark:text-red-400" title="Delete" onclick='confirmDelete({{ account.id }}, {{ account.display_name|tojson }})'>{{ icon('trash') }}</button>
                     </div>
                 </td>
             </tr>

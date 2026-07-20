@@ -76,7 +76,7 @@
 
                 <div class="flex items-center gap-1">
                     <button class="btn btn-ghost p-2" title="Renew now"
-                            onclick="Renewals.start({{ account.id }}, {{ account.name|tojson }})">{{ icon('refresh') }}</button>
+                            onclick='Renewals.start({{ account.id }}, {{ account.name|tojson }})'>{{ icon('refresh') }}</button>
                     <a href="{{ url_for('capture_view', id=account.id) }}" class="btn btn-ghost p-2" title="Capture session">{{ icon('key') }}</a>
                     <a href="{{ url_for('edit_account', id=account.id) }}" class="btn btn-ghost p-2" title="Edit">{{ icon('pencil') }}</a>
                 </div>
