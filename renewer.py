@@ -33,6 +33,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+import renewal_progress
 from cookie_jar import extract_cookies
 
 logger = logging.getLogger(__name__)
@@ -91,6 +92,7 @@ def renew(*, library_url: str, library_user: str, library_pass: str,
             logger.debug("Skipping cookie %s: %s", c.get("name"), e)
 
     started = datetime.now(timezone.utc)
+    renewal_progress.update(account_id, "Logging into the library proxy…")
     headers = {
         "User-Agent": DEFAULT_UA,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -181,6 +183,7 @@ def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
         logger.error("Browser renewal unavailable — capture_session import failed: %s", e)
         return provisional
 
+    renewal_progress.update(account_id, "Launching headless Chrome…")
     chrome_bin = _find_chrome_binary()
     profile_src = profile_dir_for(account_id)
     port = _free_port()
@@ -217,6 +220,7 @@ def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
 
             # Inject the account's cookies (pasted or profile-extracted) so
             # the session works even when the profile copy is empty or stale.
+            renewal_progress.update(account_id, "Redeeming the NYT pass…")
             cookies = extract_cookies(account_id, "nyt")
             result_url = _navigate_and_await_redemption(
                 ws_url, provisional.final_url, timeout=45, cookies=cookies)
@@ -261,6 +265,7 @@ def _verify_subscription(account_id: int, provisional: RenewalResult,
     until we see a future endDate. Falls back to the provisional result only if
     the subscription-type check fails, or if all retries see a stale date (in
     which case we use +24 h as a conservative fallback)."""
+    renewal_progress.update(account_id, "Verifying the pass with NYT…")
     cookies = extract_cookies(account_id, "nyt")
     if not cookies:
         return provisional
@@ -279,6 +284,10 @@ def _verify_subscription(account_id: int, provisional: RenewalResult,
             delay = _VERIFY_RETRY_DELAYS[attempt - 1]
             logger.info("Data-layer returned stale endDate; retrying in %ds (attempt %d/%d)",
                         delay, attempt + 1, attempts)
+            renewal_progress.update(
+                account_id,
+                f"NYT cache still stale — rechecking in {delay}s "
+                f"(attempt {attempt + 1}/{attempts})…")
             time.sleep(delay)
 
         try:

@@ -14,7 +14,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from extensions import db, migrate
 from forms import AccountForm, EditAccountForm, LibraryForm
-from helpers import execute_renewal, utcnow
+from helpers import execute_renewal, format_duration, utcnow
 from icons import icon
 from models import Account, LibraryConfig, RenewalLog
 from paths import DATA_DIR, DEFAULT_DB_URL, LOGS_DIR
@@ -370,6 +370,52 @@ def delete_account(id):
     flash('Account deleted successfully!', 'success')
     return redirect(url_for('accounts'))
 
+@app.route('/accounts/<int:id>/renew/start', methods=['POST'])
+def renewal_start(id):
+    """Kick off a renewal in a background thread and return immediately.
+    The UI polls /renew/status for streamed progress."""
+    import threading
+    import renewal_progress
+    account = Account.query.get_or_404(id)
+    if renewal_progress.is_running(account.id):
+        return jsonify(error='Renewal already running for this account'), 409
+
+    account_id = account.id
+
+    def _run():
+        with app.app_context():
+            acct = db.session.get(Account, account_id)
+            if acct is None:
+                return
+            try:
+                execute_renewal(acct)
+            except Exception as e:  # noqa: BLE001 — surface via progress store
+                logger.error(f"Manual renewal crashed for {acct.name}: {e}")
+                renewal_progress.finish(account_id, False, f"Renewal crashed: {e}")
+
+    # begin() before returning so an immediate status poll sees 'running'
+    renewal_progress.begin(account_id, account.name)
+    threading.Thread(target=_run, daemon=True, name=f'renewal-{account_id}').start()
+    return jsonify(ok=True), 202
+
+
+@app.route('/accounts/<int:id>/renew/status')
+def renewal_status(id):
+    import renewal_progress
+    run = renewal_progress.get(id)
+    if run is None:
+        return jsonify(running=False, message='No renewal recorded'), 404
+    return jsonify(run)
+
+
+@app.route('/renewals/active')
+def renewals_active():
+    """Currently-running renewals — lets pages pick up in-flight runs
+    (including scheduler-triggered ones) on load."""
+    import renewal_progress
+    return jsonify(renewal_progress.active())
+
+
 @app.route('/accounts/<int:id>/renew', methods=['POST'])
 def manual_renewal(id):
     """Manually trigger renewal for an account."""
@@ -379,7 +425,8 @@ def manual_renewal(id):
         if result is None:
             flash(f"Renewal failed for {account.name} — library config missing.", "error")
         elif result.success:
-            flash(f"Renewal completed for {account.name} ({result.duration_ms}ms).", "success")
+            flash(f"Renewal completed for {account.name} "
+                  f"({format_duration(result.duration_ms)}).", "success")
             logger.info(f"Manual renewal succeeded for {account.name}: {result.message}")
         else:
             flash(f"Renewal failed for {account.name}: {result.message}", "error")

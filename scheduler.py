@@ -127,8 +127,10 @@ def _run_account_renewal(account_id: int) -> None:
                 logger.warning(
                     f"Scheduled renewal skipped for {account.name} — library config missing.")
             elif result.success:
+                from helpers import format_duration
                 logger.info(
-                    f"Scheduled renewal succeeded for {account.name} ({result.duration_ms}ms)")
+                    f"Scheduled renewal succeeded for {account.name} "
+                    f"({format_duration(result.duration_ms)})")
             else:
                 logger.warning(
                     f"Scheduled renewal failed for {account.name}: {result.message}")
