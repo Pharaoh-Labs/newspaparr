@@ -8,18 +8,23 @@
     <div class="flex gap-3">
         {{ icon('info', cls='w-4 h-4 text-brand-600 mt-0.5') }}
         <div class="text-sm w-full">
-            <p class="font-medium mb-1">Paste cookies for {{ account.name }} (NYT)</p>
+            <p class="font-medium mb-1">Paste the NYT-S cookie for {{ account.name }} (NYT)</p>
             <ol class="list-decimal pl-4 space-y-0.5 text-gray-700 dark:text-gray-300">
-                <li>In your own browser, install the <strong>Cookie-Editor</strong> extension
-                    (<a href="https://cookie-editor.com" target="_blank" class="underline">cookie-editor.com</a> — Chrome, Firefox, Edge, Safari).</li>
-                <li>Go to <strong>nytimes.com</strong> and log in with this account.</li>
-                <li>Click the Cookie-Editor icon in the toolbar, then <strong>Export &rarr; Export as JSON</strong> (copies to clipboard).</li>
-                <li>Paste below and click <strong>Save cookies</strong>.</li>
+                <li>In your own browser, go to <strong>nytimes.com</strong> and log in with this account.</li>
+                <li>Open developer tools:
+                    <ul class="list-disc pl-4 mt-0.5 space-y-0.5">
+                        <li><strong>Safari:</strong> enable the Develop menu (Settings &rarr; Advanced &rarr; "Show features for web developers"), then <strong>Develop &rarr; Show Web Inspector &rarr; Storage tab &rarr; Cookies &rarr; nytimes.com</strong>.</li>
+                        <li><strong>Chrome/Edge:</strong> press <kbd>&#8984;&#8997;I</kbd> (or F12), then <strong>Application tab &rarr; Cookies &rarr; https://www.nytimes.com</strong>.</li>
+                        <li><strong>Firefox:</strong> press <kbd>&#8984;&#8997;I</kbd>, then <strong>Storage tab &rarr; Cookies</strong>.</li>
+                    </ul>
+                </li>
+                <li>Find the cookie named <strong>NYT-S</strong> and copy its <strong>Value</strong> (double-click the value cell, select all, copy).</li>
+                <li>Paste it below and click <strong>Save cookies</strong>.</li>
             </ol>
             <form method="POST" action="{{ url_for('paste_cookies', id=account.id) }}" class="mt-3">
-                <textarea name="cookies_json" rows="8" spellcheck="false"
+                <textarea name="cookies_json" rows="4" spellcheck="false"
                     class="w-full text-xs font-mono rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 p-2"
-                    placeholder='[ {"name": "NYT-S", "value": "…", "domain": ".nytimes.com", …}, … ]'></textarea>
+                    placeholder="Paste the NYT-S value here (a JSON export from a cookie extension also works)"></textarea>
                 <div class="mt-2 flex items-center justify-between">
                     <span class="text-xs text-gray-600 dark:text-gray-400">Sessions typically last ~30 days. Re-paste when renewals start failing.</span>
                     <button type="submit" class="btn btn-primary">{{ icon('check') }} Save cookies</button>

@@ -123,23 +123,50 @@ def _normalize_pasted(raw: object, suffixes: Iterable[str]) -> List[dict]:
     return out
 
 
-def save_pasted_cookies(account_id: int, raw_json: str,
+def _parse_bare_nyts(text: str) -> List[dict]:
+    """Parse a bare NYT-S value copied out of devtools (optionally with an
+    'NYT-S=' prefix). Returns a one-cookie list in our selenium shape."""
+    value = text.strip().strip('"').strip("'")
+    if value.upper().startswith('NYT-S='):
+        value = value[len('NYT-S='):]
+    if any(ch.isspace() for ch in value):
+        raise ValueError("That doesn't look like a cookie value — it contains "
+                         "spaces. Copy just the NYT-S Value cell from devtools.")
+    if len(value) < 20:
+        raise ValueError("That looks too short to be an NYT-S value. Copy the "
+                         "full Value cell of the NYT-S cookie from devtools.")
+    return [{
+        'name': 'NYT-S',
+        'value': value,
+        'domain': '.nytimes.com',
+        'path': '/',
+        'secure': True,
+        'httpOnly': True,
+    }]
+
+
+def save_pasted_cookies(account_id: int, raw_text: str,
                         newspaper_type: str = 'nyt') -> List[dict]:
-    """Parse and store user-pasted cookie JSON. Returns the normalized list.
-    Raises ValueError with a user-facing message on bad input."""
-    try:
-        raw = json.loads(raw_json)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"That isn't valid JSON ({e.msg} at line {e.lineno}).")
-    suffixes = NEWSPAPER_HOSTS.get(newspaper_type, NEWSPAPER_HOSTS['nyt'])
-    cookies = _normalize_pasted(raw, suffixes)
-    if not any(c['domain'].lstrip('.').endswith('nytimes.com') for c in cookies):
-        raise ValueError("No nytimes.com cookies found in the paste — make sure "
-                         "you export while on nytimes.com and logged in.")
-    if not any(c['name'] == 'NYT-S' for c in cookies):
-        raise ValueError("The NYT-S login cookie is missing from the paste. "
-                         "Export ALL cookies for nytimes.com (it's an httpOnly "
-                         "cookie, so it only appears in a full export).")
+    """Parse and store a user paste: either a cookie JSON export or a bare
+    NYT-S value from devtools. Returns the normalized list. Raises
+    ValueError with a user-facing message on bad input."""
+    raw_text = raw_text.strip()
+    if raw_text and raw_text[0] not in '[{':
+        cookies = _parse_bare_nyts(raw_text)
+    else:
+        try:
+            raw = json.loads(raw_text)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"That isn't valid JSON ({e.msg} at line {e.lineno}).")
+        suffixes = NEWSPAPER_HOSTS.get(newspaper_type, NEWSPAPER_HOSTS['nyt'])
+        cookies = _normalize_pasted(raw, suffixes)
+        if not any(c['domain'].lstrip('.').endswith('nytimes.com') for c in cookies):
+            raise ValueError("No nytimes.com cookies found in the paste — make "
+                             "sure you export while on nytimes.com and logged in.")
+        if not any(c['name'] == 'NYT-S' for c in cookies):
+            raise ValueError("The NYT-S login cookie is missing from the paste. "
+                             "Export ALL cookies for nytimes.com, or paste just "
+                             "the NYT-S value from devtools.")
     with open(_pasted_path(account_id), 'w') as f:
         json.dump(cookies, f)
     return cookies
@@ -161,23 +188,45 @@ def extract_cookies(account_id: int, newspaper_type: str = 'nyt') -> List[dict]:
     """Return a list of selenium-shaped cookie dicts for this account,
     restricted to the relevant newspaper hosts.
 
-    Two possible sources: the captured Chrome profile's cookie DB (noVNC
-    flow) and a pasted-cookies JSON file (manual flow). When both exist,
-    the most recently written one wins — a fresh paste must beat a stale
-    profile and vice versa."""
+    Two possible sources: the captured Chrome profile's cookie DB (legacy
+    noVNC flow) and a pasted-cookies JSON file (manual flow). They are
+    merged per (name, domain), with whichever source was written more
+    recently winning conflicts — a fresh NYT-S paste must beat a stale
+    profile, but the profile's other cookies (e.g. DataDome trust state)
+    still ride along."""
+    profile_cookies = _extract_profile_cookies(account_id, newspaper_type)
+    pasted = load_pasted_cookies(account_id)
+    if not pasted:
+        return profile_cookies
+    if not profile_cookies:
+        return pasted
+
+    src_root = profile_dir_for(account_id)
+    db_path = next((p for p in [
+        os.path.join(src_root, 'Default', 'Network', 'Cookies'),
+        os.path.join(src_root, 'Default', 'Cookies'),
+    ] if os.path.isfile(p)), None)
+    paste_newer = (db_path is None or
+                   os.path.getmtime(_pasted_path(account_id)) >= os.path.getmtime(db_path))
+
+    def key(c):
+        return (c['name'], (c.get('domain') or '').lstrip('.'))
+
+    older, newer = ((profile_cookies, pasted) if paste_newer
+                    else (pasted, profile_cookies))
+    merged = {key(c): c for c in older}
+    merged.update({key(c): c for c in newer})
+    return list(merged.values())
+
+
+def _extract_profile_cookies(account_id: int, newspaper_type: str = 'nyt') -> List[dict]:
+    """Cookies from the captured Chrome profile's SQLite DB, or []."""
     src_root = profile_dir_for(account_id)
     candidates = [
         os.path.join(src_root, 'Default', 'Network', 'Cookies'),
         os.path.join(src_root, 'Default', 'Cookies'),
     ]
     db_path = next((p for p in candidates if os.path.isfile(p)), None)
-
-    pasted_file = _pasted_path(account_id)
-    if os.path.isfile(pasted_file):
-        if db_path is None or os.path.getmtime(pasted_file) >= os.path.getmtime(db_path):
-            pasted = load_pasted_cookies(account_id)
-            if pasted:
-                return pasted
 
     if not profile_exists(account_id) or not db_path:
         return []
