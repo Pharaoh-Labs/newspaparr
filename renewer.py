@@ -215,8 +215,11 @@ def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
                 logger.warning("Browser renewal: Chrome CDP did not become ready")
                 return provisional
 
+            # Inject the account's cookies (pasted or profile-extracted) so
+            # the session works even when the profile copy is empty or stale.
+            cookies = extract_cookies(account_id, "nyt")
             result_url = _navigate_and_await_redemption(
-                ws_url, provisional.final_url, timeout=45)
+                ws_url, provisional.final_url, timeout=45, cookies=cookies)
 
             if result_url and "auth/login" in result_url:
                 return _result(State.SESSION_EXPIRED,
@@ -350,8 +353,12 @@ def _wait_for_cdp(port: int, timeout: float = 15.0) -> Optional[str]:
 
 
 def _navigate_and_await_redemption(ws_url: str, ippass_url: str,
-                                   timeout: float = 45.0) -> Optional[str]:
-    """Navigate to ippass_url and poll until purchase-confirmation appears."""
+                                   timeout: float = 45.0,
+                                   cookies: Optional[list] = None) -> Optional[str]:
+    """Navigate to ippass_url and poll until purchase-confirmation appears.
+
+    If cookies are given (selenium-shaped dicts), set them via CDP before
+    navigating so the session doesn't depend on the copied profile state."""
     try:
         import websocket
     except ImportError:
@@ -384,6 +391,31 @@ def _navigate_and_await_redemption(ws_url: str, ippass_url: str,
 
     try:
         send("Page.enable")
+        if cookies:
+            send("Network.enable")
+            set_count = 0
+            for c in cookies:
+                domain = (c.get("domain") or "").lstrip(".")
+                if not domain:
+                    continue
+                params = {
+                    "name": c["name"],
+                    "value": c["value"],
+                    "url": f"https://{domain}{c.get('path', '/')}",
+                    "domain": c.get("domain"),
+                    "path": c.get("path", "/"),
+                    "secure": bool(c.get("secure")),
+                    "httpOnly": bool(c.get("httpOnly")),
+                }
+                if c.get("expiry"):
+                    params["expires"] = float(c["expiry"])
+                if c.get("sameSite") in ("Strict", "Lax", "None"):
+                    params["sameSite"] = c["sameSite"]
+                resp = recv_for(send("Network.setCookie", params))
+                if (resp.get("result") or {}).get("success"):
+                    set_count += 1
+            logger.info("Browser renewal: injected %d/%d cookies via CDP",
+                        set_count, len(cookies))
         recv_for(send("Page.navigate", {"url": ippass_url}))
 
         deadline = time.time() + timeout

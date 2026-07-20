@@ -428,6 +428,29 @@ def capture_finish(id, token):
     return jsonify(ok=True, saved=save)
 
 
+@app.route('/accounts/<int:id>/cookies', methods=['POST'])
+def paste_cookies(id):
+    """Manual capture path: user pastes a cookie JSON export (Cookie-Editor
+    et al.) instead of using the noVNC browser. Feeds the same jar the
+    renewal flow reads."""
+    from cookie_jar import save_pasted_cookies
+    account = Account.query.get_or_404(id)
+    raw = request.form.get('cookies_json', '').strip()
+    if not raw:
+        flash('Paste the exported cookie JSON first.', 'error')
+        return redirect(url_for('capture_view', id=id))
+    try:
+        cookies = save_pasted_cookies(account.id, raw)
+    except ValueError as e:
+        flash(str(e), 'error')
+        return redirect(url_for('capture_view', id=id))
+    account.profile_captured_at = utcnow()
+    db.session.commit()
+    flash(f'Saved {len(cookies)} cookies for {account.name}. '
+          f'Run a renewal to verify the session works.', 'success')
+    return redirect(url_for('accounts'))
+
+
 @app.route('/libraries')
 def libraries():
     """Library configuration page"""
