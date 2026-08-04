@@ -39,7 +39,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GHCR_TOKEN }}  # existing PAT that owns the ghcr package (GITHUB_TOKEN lacks write on pre-existing package)
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
