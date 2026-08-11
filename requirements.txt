@@ -21,6 +21,10 @@ httpx>=0.27.0
 # Cookie decryption (Chrome v10 AES-CBC + PBKDF2)
 cryptography>=42.0.0
 
+# CDP client for the headless-Chrome ippass redemption in renewer.py.
+# NOT the same package as websockify below — `import websocket` needs this one.
+websocket-client>=1.7.0
+
 # WSGI server
 gunicorn>=21.0.0
 

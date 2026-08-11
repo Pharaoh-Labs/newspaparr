@@ -637,8 +637,13 @@ def health_check():
         # Check scheduler
         scheduler_healthy = _scheduler_mod.is_running()
 
+        # Check the pieces the ippass redemption needs — without these a
+        # renewal cannot actually grant access, however green it looks.
+        from renewer import redemption_deps_status
+        redeem_healthy, redeem_detail = redemption_deps_status()
+
         # Overall health
-        is_healthy = db_healthy and scheduler_healthy
+        is_healthy = db_healthy and scheduler_healthy and redeem_healthy
 
         health_status = {
             'status': 'healthy' if is_healthy else 'unhealthy',
@@ -648,6 +653,7 @@ def health_check():
             'checks': {
                 'database': 'healthy' if db_healthy else 'unhealthy',
                 'scheduler': 'healthy' if scheduler_healthy else 'unhealthy',
+                'redemption_deps': 'healthy' if redeem_healthy else redeem_detail,
             }
         }
         

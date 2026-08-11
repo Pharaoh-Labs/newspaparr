@@ -126,8 +126,68 @@ class TestVerifySubscriptionRetry:
 
     @patch("renewer.time.sleep")
     @patch("renewer.extract_cookies", return_value=[])
-    def test_no_cookies_returns_provisional(self, _mock_cookies, mock_sleep):
-        prov = _provisional()
-        result = _verify_subscription(1, prov, started=_utcnow())
-        assert result is prov
+    def test_no_cookies_is_not_reported_as_success(self, _mock_cookies, mock_sleep):
+        """Unverifiable must not inherit the provisional RENEWED state — that
+        masking is what let months of dead renewals look green."""
+        result = _verify_subscription(1, _provisional(), started=_utcnow())
+        assert result.state == State.UNVERIFIED
+        assert not result.success
         mock_sleep.assert_not_called()
+
+    @patch("renewer.time.sleep")
+    @patch("renewer.extract_cookies", return_value=[{"name": "k", "value": "v",
+                                                      "domain": ".nytimes.com"}])
+    def test_data_layer_error_is_not_reported_as_success(self, _mock_cookies, mock_sleep):
+        with patch("renewer.httpx.Client") as mock_client_cls:
+            mock_client_cls.return_value.__enter__.return_value.get.side_effect = \
+                RuntimeError("boom")
+
+            result = _verify_subscription(1, _provisional(), started=_utcnow())
+
+        assert result.state == State.UNVERIFIED
+        assert not result.success
+
+
+class TestRedemptionCannotSilentlyNoOp:
+    """The redemption step must never report success when it did not run."""
+
+    def test_missing_websocket_client_raises(self):
+        """Regression: `import websocket` failing used to return None, making
+        redemption a no-op that still logged 'NYT pass renewed'."""
+        import builtins
+        real_import = builtins.__import__
+
+        def fake_import(name, *a, **kw):
+            if name == "websocket":
+                raise ImportError("no module named websocket")
+            return real_import(name, *a, **kw)
+
+        with patch.object(builtins, "__import__", side_effect=fake_import):
+            with pytest.raises(RuntimeError, match="websocket-client"):
+                renewer._navigate_and_await_redemption("ws://x", "https://x?ip_token=y")
+
+    def test_browser_failure_is_not_success(self):
+        """A blown-up browser phase reports REDEMPTION_FAILED, not RENEWED."""
+        prov = RenewalResult(State.RENEWED, "NYT pass renewed", None,
+                             "https://www.nytimes.com/activate-access/ippass?ip_token=x", 0)
+        with patch("capture_session._find_chrome_binary",
+                   side_effect=FileNotFoundError("no chrome")):
+            result = renewer._redeem_via_browser(prov, account_id=1, started=_utcnow())
+
+        assert result.state == State.REDEMPTION_FAILED
+        assert not result.success
+
+    def test_deps_status_reports_missing_websocket(self):
+        import builtins
+        real_import = builtins.__import__
+
+        def fake_import(name, *a, **kw):
+            if name == "websocket":
+                raise ImportError("nope")
+            return real_import(name, *a, **kw)
+
+        with patch.object(builtins, "__import__", side_effect=fake_import):
+            ok, detail = renewer.redemption_deps_status()
+
+        assert not ok
+        assert "websocket-client" in detail

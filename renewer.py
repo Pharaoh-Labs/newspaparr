@@ -51,6 +51,14 @@ class State(str, Enum):
     SESSION_EXPIRED = "session_expired"
     LIBRARY_AUTH_FAILED = "library_auth_failed"
     NETWORK_ERROR = "network_error"
+    # The browser redemption step could not run at all, so the pass was
+    # definitely NOT redeemed. Never report this as success: phase 1 only
+    # proves we obtained an ip_token, not that anyone spent it.
+    REDEMPTION_FAILED = "redemption_failed"
+    # Redemption ran but we could not confirm it against the data-layer.
+    # Treated as failure so a silently-dead renewal surfaces instead of
+    # accruing days of green checkmarks with no actual NYT access.
+    UNVERIFIED = "unverified"
     UNEXPECTED = "unexpected"
 
 
@@ -65,6 +73,28 @@ class RenewalResult:
     @property
     def success(self) -> bool:
         return self.state == State.RENEWED
+
+
+def redemption_deps_status() -> tuple[bool, str]:
+    """Are the pieces the ippass redemption needs actually present?
+
+    Exists because a missing `websocket-client` silently turned redemption into
+    a no-op for months while the UI reported success. Surfaced via /api/health
+    so the gap is visible without waiting for a renewal to run.
+    """
+    missing = []
+    try:
+        import websocket  # noqa: F401
+    except ImportError:
+        missing.append("websocket-client (CDP client)")
+    try:
+        from capture_session import _find_chrome_binary
+        _find_chrome_binary()
+    except Exception as e:
+        missing.append(f"Chrome/Chromium binary ({e})")
+    if missing:
+        return False, "missing: " + ", ".join(missing)
+    return True, "ok"
 
 
 def renew(*, library_url: str, library_user: str, library_pass: str,
@@ -181,15 +211,21 @@ def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
         from capture_session import _find_chrome_binary, profile_dir_for
     except ImportError as e:
         logger.error("Browser renewal unavailable — capture_session import failed: %s", e)
-        return provisional
+        return _result(State.REDEMPTION_FAILED,
+                       f"Cannot redeem pass — browser support unavailable ({e}).",
+                       final_url=provisional.final_url, started=started)
 
     renewal_progress.update(account_id, "Launching headless Chrome…")
-    chrome_bin = _find_chrome_binary()
-    profile_src = profile_dir_for(account_id)
-    port = _free_port()
-    tmp_dir = tempfile.mkdtemp(prefix=f"nwspr-renew-{account_id}-")
-
+    # Locating Chrome and staging the profile must sit inside the try: a
+    # missing binary here used to escape as an unhandled exception, so the
+    # renewal crashed without ever writing a RenewalLog row.
+    tmp_dir = None
     try:
+        chrome_bin = _find_chrome_binary()
+        profile_src = profile_dir_for(account_id)
+        port = _free_port()
+        tmp_dir = tempfile.mkdtemp(prefix=f"nwspr-renew-{account_id}-")
+
         profile_copy = os.path.join(tmp_dir, "profile")
         shutil.copytree(profile_src, profile_copy,
                         symlinks=True, ignore_dangling_symlinks=True)
@@ -216,7 +252,9 @@ def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
             ws_url = _wait_for_cdp(port, timeout=15)
             if not ws_url:
                 logger.warning("Browser renewal: Chrome CDP did not become ready")
-                return provisional
+                return _result(State.REDEMPTION_FAILED,
+                               "Cannot redeem pass — headless Chrome did not start.",
+                               final_url=provisional.final_url, started=started)
 
             # Inject the account's cookies (pasted or profile-extracted) so
             # the session works even when the profile copy is empty or stale.
@@ -239,9 +277,12 @@ def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
 
     except Exception as e:
         logger.error("Browser renewal error: %s", e)
-        return provisional
+        return _result(State.REDEMPTION_FAILED,
+                       f"Cannot redeem pass — browser redemption failed ({e}).",
+                       final_url=provisional.final_url, started=started)
     finally:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        if tmp_dir:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
     # Authoritative check: query the NYT data-layer for the live subscription
     # state and expiry. This handles both "purchase-confirmation" (new
@@ -268,7 +309,10 @@ def _verify_subscription(account_id: int, provisional: RenewalResult,
     renewal_progress.update(account_id, "Verifying the pass with NYT…")
     cookies = extract_cookies(account_id, "nyt")
     if not cookies:
-        return provisional
+        return _result(State.UNVERIFIED,
+                       "Redemption ran but could not be verified — no NYT session "
+                       "cookies to query the data-layer with.",
+                       final_url=provisional.final_url, started=started)
 
     jar = httpx.Cookies()
     for c in cookies:
@@ -296,8 +340,11 @@ def _verify_subscription(account_id: int, provisional: RenewalResult,
                 r = client.get(_NYT_DATA_LAYER)
                 data = r.json()
         except Exception as e:
-            logger.warning("Subscription verify request failed: %s — using provisional", e)
-            return provisional
+            logger.warning("Subscription verify request failed: %s", e)
+            return _result(State.UNVERIFIED,
+                           f"Redemption ran but could not be verified — NYT "
+                           f"data-layer query failed ({e}).",
+                           final_url=provisional.final_url, started=started)
 
         user = data.get("user") or {}
         user_type = user.get("type", "")
@@ -370,9 +417,12 @@ def _navigate_and_await_redemption(ws_url: str, ippass_url: str,
     navigating so the session doesn't depend on the copied profile state."""
     try:
         import websocket
-    except ImportError:
-        logger.error("websocket-client not installed")
-        return None
+    except ImportError as e:
+        # Raise rather than return None: returning None here made the whole
+        # redemption a no-op that the caller still reported as success.
+        raise RuntimeError(
+            "websocket-client is not installed — the ippass redemption cannot run"
+        ) from e
 
     try:
         ws = websocket.create_connection(ws_url, timeout=10)
