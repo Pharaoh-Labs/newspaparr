@@ -220,6 +220,7 @@ def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
     # missing binary here used to escape as an unhandled exception, so the
     # renewal crashed without ever writing a RenewalLog row.
     tmp_dir = None
+    stderr_file = None
     try:
         chrome_bin = _find_chrome_binary()
         profile_src = profile_dir_for(account_id)
@@ -230,6 +231,10 @@ def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
         shutil.copytree(profile_src, profile_copy,
                         symlinks=True, ignore_dangling_symlinks=True)
 
+        # Keep Chrome's stderr: when CDP never comes up, its last lines are
+        # the only clue to why (crashed profile, OOM kill, missing lib, …).
+        stderr_path = os.path.join(tmp_dir, "chrome-stderr.log")
+        stderr_file = open(stderr_path, "wb")
         proc = subprocess.Popen(
             [
                 chrome_bin,
@@ -245,15 +250,20 @@ def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
                 "--disable-extensions",
             ],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=stderr_file,
         )
 
         try:
             ws_url = _wait_for_cdp(port, timeout=15)
             if not ws_url:
-                logger.warning("Browser renewal: Chrome CDP did not become ready")
+                status = ("exited with code %s" % proc.poll()
+                          if proc.poll() is not None else "running but CDP unreachable")
+                detail = _chrome_stderr_tail(stderr_file, stderr_path)
+                logger.warning("Browser renewal: Chrome CDP did not become ready "
+                               "(%s). stderr: %s", status, detail or "<empty>")
                 return _result(State.REDEMPTION_FAILED,
-                               "Cannot redeem pass — headless Chrome did not start.",
+                               f"Cannot redeem pass — headless Chrome did not start "
+                               f"({status}{': ' + detail if detail else ''}).",
                                final_url=provisional.final_url, started=started)
 
             # Inject the account's cookies (pasted or profile-extracted) so
@@ -281,6 +291,8 @@ def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
                        f"Cannot redeem pass — browser redemption failed ({e}).",
                        final_url=provisional.final_url, started=started)
     finally:
+        if stderr_file:
+            stderr_file.close()
         if tmp_dir:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -392,6 +404,21 @@ def _free_port() -> int:
     with socket.socket() as s:
         s.bind(("", 0))
         return s.getsockname()[1]
+
+
+def _chrome_stderr_tail(stderr_file, stderr_path: str, max_chars: int = 300) -> str:
+    """Last meaningful stderr lines from a Chrome that failed to come up.
+
+    Filters the ever-present dbus noise — in a container Chrome always spams
+    dbus connection errors that say nothing about why startup failed."""
+    try:
+        stderr_file.flush()
+        with open(stderr_path, "r", errors="replace") as f:
+            lines = [ln.strip() for ln in f
+                     if ln.strip() and ":dbus/" not in ln and "DBus" not in ln]
+        return " | ".join(lines[-3:])[-max_chars:]
+    except Exception:
+        return ""
 
 
 def _wait_for_cdp(port: int, timeout: float = 15.0) -> Optional[str]:
