@@ -5,6 +5,18 @@ All notable changes to Newspaparr will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Proxy egress (`egress.py`): optional pool of HTTP proxy lanes from `PROXY_URLS` and/or `PROXIES_FILE` (Webshare direct format). Each account is pinned to one lane at capture time and keeps it for every renewal, so the NYT trust and all later traffic share one exit IP; the host's own IP is never used once a lane exists. `PROXY_REQUIRED` refuses to go direct at all.
+- The capture browser, the EZproxy chain, the headless redemption and the data-layer verify all honour the lane. Chromium gets a loopback forwarder that injects the proxy credentials, and WebRTC is limited to proxied traffic.
+- Accounts page shows the lane (`via host:port`) and offers a rotate action that moves the account to another lane and leads to re-capture. `/api/status` reports the lanes (credentials never exposed).
+- `egress_lane` column on `account` (auto-migrated on boot).
+
+### Fixed
+- `websocket-client` was missing from `requirements.txt`, so the headless redemption step could not talk to Chromium in the Docker image.
+- README no longer claims renewals are browser-free; it describes the httpx + headless-Chromium flow that has shipped since 1.1.0.
+
 ## [1.1.0] - 2026-05-09
 
 ### Added

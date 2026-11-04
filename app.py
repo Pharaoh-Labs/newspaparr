@@ -14,7 +14,8 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from extensions import db, migrate
 from forms import AccountForm, EditAccountForm, LibraryForm
-from helpers import execute_renewal, utcnow
+import egress
+from helpers import account_lane, execute_renewal, utcnow
 from icons import icon
 from models import Account, LibraryConfig, RenewalLog
 from paths import DATA_DIR, DEFAULT_DB_URL, LOGS_DIR
@@ -261,7 +262,8 @@ def accounts():
             }
 
     libraries = {lib.type: lib.name for lib in LibraryConfig.query.all()}
-    return render_template('accounts.html', accounts=accounts, libraries=libraries, account_statuses=account_statuses)
+    return render_template('accounts.html', accounts=accounts, libraries=libraries,
+                           account_statuses=account_statuses, egress=egress.status())
 
 @app.route('/accounts/add', methods=['GET', 'POST'])
 def add_account():
@@ -406,10 +408,32 @@ def capture_start(id):
     from capture_session import CaptureSessionManager
     account = Account.query.get_or_404(id)
     try:
-        session = CaptureSessionManager().start(account.id, NYT_LOGIN_URL)
+        lane = account_lane(account, for_capture=True)
+        session = CaptureSessionManager().start(
+            account.id, NYT_LOGIN_URL, proxy_url=lane.url if lane else None)
+    except egress.EgressError as e:
+        return jsonify(error=str(e)), 409
     except RuntimeError as e:
         return jsonify(error=str(e)), 409
-    return jsonify(token=session.token, ws_port=session.ws_port)
+    return jsonify(token=session.token, ws_port=session.ws_port,
+                   egress=lane.host if lane else None)
+
+
+@app.route('/accounts/<int:id>/egress/rotate', methods=['POST'])
+def rotate_egress(id):
+    """Move the account to a different lane. The NYT trust in the captured profile belongs to the
+    old exit IP, so the user is sent to re-capture right away."""
+    account = Account.query.get_or_404(id)
+    try:
+        lane = account_lane(account, for_capture=True, rotate=True)
+    except egress.EgressError as e:
+        flash(str(e), 'error')
+        return redirect(url_for('accounts'))
+    if lane is None:
+        flash('No proxy lanes are configured; nothing to rotate.', 'error')
+        return redirect(url_for('accounts'))
+    flash(f'{account.name} now exits through {lane.host}. Capture the NYT session again so it is trusted from that IP.', 'success')
+    return redirect(url_for('capture_view', id=account.id))
 
 
 @app.route('/accounts/<int:id>/capture/<token>/finish', methods=['POST'])
@@ -547,6 +571,7 @@ def api_status():
         'active_accounts': len([a for a in accounts if a.active]),
         'scheduled_jobs': _scheduler_mod.job_count(),
         'system_status': 'running',
+        'egress': egress.status(),
         'last_check': utcnow().isoformat()
     }
 
@@ -709,6 +734,18 @@ def init_db():
                 db.session.commit()
             except Exception as e:
                 logger.error(f"profile_captured_at migration failed: {e}")
+                db.session.rollback()
+
+        # Egress lane column (added 2026-11: per-account proxy pin, see egress.py)
+        try:
+            db.session.execute(db.text("SELECT egress_lane FROM account LIMIT 1"))
+        except Exception:
+            try:
+                logger.info("Adding egress_lane column to account table")
+                db.session.execute(db.text("ALTER TABLE account ADD COLUMN egress_lane VARCHAR(100)"))
+                db.session.commit()
+            except Exception as e:
+                logger.error(f"egress_lane migration failed: {e}")
                 db.session.rollback()
 
         # Expiration column on renewal_log (added 2026-05 to surface real expiry date)

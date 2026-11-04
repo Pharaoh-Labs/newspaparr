@@ -38,6 +38,11 @@
                                 {% else %}
                                     <span class="text-amber-600 dark:text-amber-400">No session captured</span>
                                 {% endif %}
+                                {% if account.egress_lane %}
+                                    &middot; <span title="Proxy lane this account's traffic leaves through">via {{ account.egress_lane }}</span>
+                                {% elif egress.required %}
+                                    &middot; <span class="text-amber-600 dark:text-amber-400" title="A lane is assigned at the next capture or renewal">no lane yet</span>
+                                {% endif %}
                             </p>
                         </div>
                     </div>
@@ -69,6 +74,11 @@
                             <button class="btn btn-ghost p-2" title="Renew now">{{ icon('refresh') }}</button>
                         </form>
                         <a href="{{ url_for('capture_view', id=account.id) }}" class="btn btn-ghost p-2" title="Capture session">{{ icon('key') }}</a>
+                        {% if egress.lanes|length > 1 %}
+                        <form method="POST" action="{{ url_for('rotate_egress', id=account.id) }}" onsubmit="return confirm('Move {{ account.name|e }} to a different proxy lane? You will need to capture the NYT session again.');">
+                            <button class="btn btn-ghost p-2" title="Rotate proxy lane (then re-capture)">{{ icon('arrows-right-left') }}</button>
+                        </form>
+                        {% endif %}
                         <a href="{{ url_for('edit_account', id=account.id) }}" class="btn btn-ghost p-2" title="Edit">{{ icon('pencil') }}</a>
                         <button class="btn btn-ghost p-2 text-red-600 hover:text-red-700 dark:text-red-400" title="Delete" onclick="confirmDelete({{ account.id }}, {{ account.display_name|tojson }})">{{ icon('trash') }}</button>
                     </div>

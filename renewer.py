@@ -34,6 +34,7 @@ from urllib.parse import urljoin, urlparse
 import httpx
 
 from cookie_jar import extract_cookies
+from egress import Lane, LocalForwarder, chrome_proxy_args, proxy_host
 
 logger = logging.getLogger(__name__)
 
@@ -67,14 +68,31 @@ class RenewalResult:
 
 
 def renew(*, library_url: str, library_user: str, library_pass: str,
-          account_id: int, timeout: float = 30.0) -> RenewalResult:
+          account_id: int, timeout: float = 30.0,
+          proxy: Optional[str] = None,
+          egress_label: Optional[str] = None) -> RenewalResult:
     """Run an NYT pass renewal for an account.
 
     Phase 1 (httpx): follow the EZproxy redirect chain, stopping just before
     the final redirect to the ippass URL so the token is not consumed.
     Phase 2 (headless Chrome): open the ippass URL fresh so the SPA's Apollo
     Client fires redeemIpPass and the ZUORA subscription is updated.
+
+    `proxy` is the account's egress lane (a proxy URL, credentials included);
+    every request of both phases and the verify step goes through it, so the
+    host's own IP is never seen by the library or NYT. `egress_label` is the
+    credential-free name of that lane for the activity log.
     """
+    result = _renew(library_url=library_url, library_user=library_user,
+                    library_pass=library_pass, account_id=account_id,
+                    timeout=timeout, proxy=proxy)
+    if egress_label:
+        result.message = f"{result.message} [via {egress_label}]"
+    return result
+
+
+def _renew(*, library_url: str, library_user: str, library_pass: str,
+           account_id: int, timeout: float, proxy: Optional[str]) -> RenewalResult:
     cookies = extract_cookies(account_id, "nyt")
     if not cookies:
         return RenewalResult(
@@ -104,7 +122,7 @@ def renew(*, library_url: str, library_user: str, library_pass: str,
     final_r: Optional[httpx.Response] = None
 
     with httpx.Client(cookies=jar, follow_redirects=False, timeout=timeout,
-                      headers=headers) as client:
+                      headers=headers, proxy=proxy) as client:
         try:
             r = client.get(library_url)
         except httpx.HTTPError as e:
@@ -147,7 +165,8 @@ def renew(*, library_url: str, library_user: str, library_pass: str,
             State.RENEWED, "NYT pass renewed",
             final_url=ippass_url,
         )
-        return _redeem_via_browser(provisional, account_id=account_id, started=started)
+        return _redeem_via_browser(provisional, account_id=account_id, started=started,
+                                   proxy=proxy)
 
     # Fell through without finding the ippass URL — classify the last response.
     if final_r is None:
@@ -159,18 +178,21 @@ def renew(*, library_url: str, library_user: str, library_pass: str,
         return phase1
 
     # final_r landed on the ippass URL (follow_redirects=False caught it late).
-    return _redeem_via_browser(phase1, account_id=account_id, started=started)
+    return _redeem_via_browser(phase1, account_id=account_id, started=started, proxy=proxy)
 
 
 # ---------- headless Chrome redemption ----------
 
 def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
-                        started: datetime) -> RenewalResult:
+                        started: datetime, proxy: Optional[str] = None) -> RenewalResult:
     """Open the ippass URL in headless Chrome with the captured profile.
 
     The SPA's Apollo Client fires redeemIpPass automatically on page load.
     Success is confirmed by querying the NYT data-layer API after Chrome runs —
     the authoritative source for subscription state and expiry date.
+
+    With a proxy, Chrome is pointed at a loopback LocalForwarder for that lane
+    (Chrome takes no credentials on --proxy-server); without one it is direct.
     """
     if not provisional.final_url or "ip_token" not in provisional.final_url:
         return provisional
@@ -185,11 +207,15 @@ def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
     profile_src = profile_dir_for(account_id)
     port = _free_port()
     tmp_dir = tempfile.mkdtemp(prefix=f"nwspr-renew-{account_id}-")
+    forwarder: Optional[LocalForwarder] = None
 
     try:
         profile_copy = os.path.join(tmp_dir, "profile")
         shutil.copytree(profile_src, profile_copy,
                         symlinks=True, ignore_dangling_symlinks=True)
+
+        if proxy:
+            forwarder = LocalForwarder(Lane(url=proxy, host=proxy_host(proxy))).start()
 
         proc = subprocess.Popen(
             [
@@ -204,6 +230,7 @@ def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
                 f"--user-data-dir={profile_copy}",
                 "--no-first-run",
                 "--disable-extensions",
+                *chrome_proxy_args(forwarder),
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -234,12 +261,14 @@ def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
         logger.error("Browser renewal error: %s", e)
         return provisional
     finally:
+        if forwarder is not None:
+            forwarder.stop()
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
     # Authoritative check: query the NYT data-layer for the live subscription
     # state and expiry. This handles both "purchase-confirmation" (new
     # redemption) and "pass_still_active" (already-active pass) as success.
-    return _verify_subscription(account_id, provisional, started=started)
+    return _verify_subscription(account_id, provisional, started=started, proxy=proxy)
 
 
 _NYT_DATA_LAYER = "https://a.nytimes.com/svc/nyt/data-layer"
@@ -249,7 +278,8 @@ _VERIFY_RETRY_DELAYS = (5, 10, 20)  # seconds between attempts when cache is sta
 
 
 def _verify_subscription(account_id: int, provisional: RenewalResult,
-                          *, started: datetime) -> RenewalResult:
+                          *, started: datetime,
+                          proxy: Optional[str] = None) -> RenewalResult:
     """Query the NYT data-layer API to confirm the subscription is active and
     obtain the real expiry date.
 
@@ -280,7 +310,7 @@ def _verify_subscription(account_id: int, provisional: RenewalResult,
 
         try:
             with httpx.Client(cookies=jar, follow_redirects=True, timeout=15,
-                              headers={"User-Agent": DEFAULT_UA}) as client:
+                              headers={"User-Agent": DEFAULT_UA}, proxy=proxy) as client:
                 r = client.get(_NYT_DATA_LAYER)
                 data = r.json()
         except Exception as e:

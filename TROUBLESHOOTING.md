@@ -14,6 +14,7 @@ Every renewal attempt is recorded in the **Activity** tab with a final state. Th
 | `LIBRARY_AUTH_FAILED` | Library card / PIN was rejected by EZproxy | Check the card number and PIN; try logging in on the library website directly |
 | `NETWORK_ERROR` | Couldn't reach the library or NYT | Library server may be down; check DNS / firewall; retry in a few minutes |
 | `UNEXPECTED` | Reached an unrecognized end state | Open the Activity row to see the final URL and message; file an issue with that detail |
+| `Egress blocked` | Proxy lanes are configured (or `PROXY_REQUIRED` is on) but this account has no usable lane | Restore the lane in `PROXY_URLS` / the proxies file, or re-capture to move the account to another lane |
 
 ## Capture flow won't work
 
@@ -23,6 +24,14 @@ The one-time NYT capture opens an embedded Chromium that streams to your dashboa
 - **Capture window opens but Chromium crashes** — usually a memory issue inside the container. Bump the container memory limit, or restart the container and retry.
 - **"Save & close" does nothing** — make sure you're actually logged into NYT *and* on a page under `nytimes.com` before clicking save. The capture only stores cookies for that domain.
 - **Subsequent renewals all return `SESSION_EXPIRED`** — sessions naturally age out (~30 days). Just re-capture.
+
+## Proxy egress
+
+- **Renewals started failing with `SESSION_EXPIRED` right after adding proxies** — the existing session was captured from your home IP; NYT will not trust it from the lane's IP. Re-capture each account once (the capture browser now uses the lane too).
+- **One lane got blocked** — use the rotate action next to the account (shown when there is more than one lane), then re-capture. The old lane keeps serving the accounts still pinned to it.
+- **`NETWORK_ERROR` mentioning the proxy** — the lane is down or its credentials are wrong. The activity message ends with `[via host:port]` so you can tell which one.
+- **Rotating-IP proxies** keep changing the exit IP under a pinned account and will be scored as suspicious. Use static residential or ISP proxies.
+- **Checking what is configured** — `GET /api/status` lists the lanes as `host:port` (credentials are never shown).
 
 ## Library authentication
 
