@@ -17,7 +17,7 @@ from extensions import db, migrate
 from forms import AccountForm, EditAccountForm, LibraryForm
 import cadence
 import egress
-from helpers import account_lane, execute_renewal, utcnow
+from helpers import account_lane, execute_renewal, format_duration, utcnow
 from icons import icon
 from models import Account, LibraryConfig, RenewalLog
 from paths import DATA_DIR, DEFAULT_DB_URL, LOGS_DIR
@@ -374,6 +374,52 @@ def delete_account(id):
     flash('Account deleted successfully!', 'success')
     return redirect(url_for('accounts'))
 
+@app.route('/accounts/<int:id>/renew/start', methods=['POST'])
+def renewal_start(id):
+    """Kick off a renewal in a background thread and return immediately.
+    The UI polls /renew/status for streamed progress."""
+    import threading
+    import renewal_progress
+    account = Account.query.get_or_404(id)
+    if renewal_progress.is_running(account.id):
+        return jsonify(error='Renewal already running for this account'), 409
+
+    account_id = account.id
+
+    def _run():
+        with app.app_context():
+            acct = db.session.get(Account, account_id)
+            if acct is None:
+                return
+            try:
+                execute_renewal(acct)
+            except Exception as e:  # noqa: BLE001 — surface via progress store
+                logger.error(f"Manual renewal crashed for {acct.name}: {e}")
+                renewal_progress.finish(account_id, False, f"Renewal crashed: {e}")
+
+    # begin() before returning so an immediate status poll sees 'running'
+    renewal_progress.begin(account_id, account.name)
+    threading.Thread(target=_run, daemon=True, name=f'renewal-{account_id}').start()
+    return jsonify(ok=True), 202
+
+
+@app.route('/accounts/<int:id>/renew/status')
+def renewal_status(id):
+    import renewal_progress
+    run = renewal_progress.get(id)
+    if run is None:
+        return jsonify(running=False, message='No renewal recorded'), 404
+    return jsonify(run)
+
+
+@app.route('/renewals/active')
+def renewals_active():
+    """Currently-running renewals — lets pages pick up in-flight runs
+    (including scheduler-triggered ones) on load."""
+    import renewal_progress
+    return jsonify(renewal_progress.active())
+
+
 @app.route('/accounts/<int:id>/renew', methods=['POST'])
 def manual_renewal(id):
     """Manually trigger renewal for an account."""
@@ -383,7 +429,8 @@ def manual_renewal(id):
         if result is None:
             flash(f"Renewal failed for {account.name} — library config missing.", "error")
         elif result.success:
-            flash(f"Renewal completed for {account.name} ({result.duration_ms}ms).", "success")
+            flash(f"Renewal completed for {account.name} "
+                  f"({format_duration(result.duration_ms)}).", "success")
             logger.info(f"Manual renewal succeeded for {account.name}: {result.message}")
         else:
             flash(f"Renewal failed for {account.name}: {result.message}", "error")
@@ -434,7 +481,7 @@ def rotate_egress(id):
     if lane is None:
         flash('No proxy lanes are configured; nothing to rotate.', 'error')
         return redirect(url_for('accounts'))
-    flash(f'{account.name} now exits through {lane.host}. Capture the NYT session again so it is trusted from that IP.', 'success')
+    flash(f'{account.name} now exits through {lane.host}. Paste a fresh NYT-S cookie so the session starts clean on that IP.', 'success')
     return redirect(url_for('capture_view', id=account.id))
 
 
@@ -452,6 +499,29 @@ def capture_finish(id, token):
             account.profile_captured_at = utcnow()
             db.session.commit()
     return jsonify(ok=True, saved=save)
+
+
+@app.route('/accounts/<int:id>/cookies', methods=['POST'])
+def paste_cookies(id):
+    """Manual capture path: user pastes a cookie JSON export (Cookie-Editor
+    et al.) instead of using the noVNC browser. Feeds the same jar the
+    renewal flow reads."""
+    from cookie_jar import save_pasted_cookies
+    account = Account.query.get_or_404(id)
+    raw = request.form.get('cookies_json', '').strip()
+    if not raw:
+        flash('Paste the exported cookie JSON first.', 'error')
+        return redirect(url_for('capture_view', id=id))
+    try:
+        cookies = save_pasted_cookies(account.id, raw)
+    except ValueError as e:
+        flash(str(e), 'error')
+        return redirect(url_for('capture_view', id=id))
+    account.profile_captured_at = utcnow()
+    db.session.commit()
+    flash(f'Saved {len(cookies)} cookies for {account.name}. '
+          f'Run a renewal to verify the session works.', 'success')
+    return redirect(url_for('accounts'))
 
 
 @app.route('/libraries')
@@ -595,8 +665,13 @@ def health_check():
         # Check scheduler
         scheduler_healthy = _scheduler_mod.is_running()
 
+        # Check the pieces the ippass redemption needs — without these a
+        # renewal cannot actually grant access, however green it looks.
+        from renewer import redemption_deps_status
+        redeem_healthy, redeem_detail = redemption_deps_status()
+
         # Overall health
-        is_healthy = db_healthy and scheduler_healthy
+        is_healthy = db_healthy and scheduler_healthy and redeem_healthy
 
         health_status = {
             'status': 'healthy' if is_healthy else 'unhealthy',
@@ -606,6 +681,7 @@ def health_check():
             'checks': {
                 'database': 'healthy' if db_healthy else 'unhealthy',
                 'scheduler': 'healthy' if scheduler_healthy else 'unhealthy',
+                'redemption_deps': 'healthy' if redeem_healthy else redeem_detail,
             }
         }
         

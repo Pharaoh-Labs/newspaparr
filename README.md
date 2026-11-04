@@ -106,7 +106,7 @@ Failed attempts retry on the same jittered cadence. The manual *Renew now* butto
 
 ### Proxy egress (keep your home IP out of it)
 
-NYT's bot defences (DataDome) score the IP the session was captured from and the IP each renewal comes from. If your home IP gets flagged, or you just do not want it associated with the automation, give Newspaparr a pool of HTTP proxies and it will route **everything** through them: the capture browser, the EZproxy chain, the headless redemption and the verification call. The host's own IP is never used once a lane is configured.
+NYT's bot defences (DataDome) score the IP every automated renewal comes from. If your home IP gets flagged, or you just do not want it associated with the automation, give Newspaparr a pool of HTTP proxies and it will route **everything** through them: the EZproxy chain, the headless redemption, the verification call, and the in-dashboard capture browser if you use it. The host's own IP is never used once a lane is configured. Logging into nytimes.com in your own browser to copy the `NYT-S` cookie stays a normal human visit.
 
 ```yaml
     environment:
@@ -122,9 +122,9 @@ NYT's bot defences (DataDome) score the IP the session was captured from and the
 
 How lanes work:
 
-- Each account is **pinned to one lane** the first time it captures or renews, and stays on it. The trust NYT grants during capture belongs to that exit IP, so capture and every renewal must share it. The lane is shown under the account name (`via 1.2.3.4:8080`) and in the activity log.
-- **Rotate** (the arrows icon next to an account, shown when there is more than one lane) moves the account to the least-used other lane and sends you straight to re-capture. Do this when a lane gets blocked.
-- A lane removed from the list is re-chosen at the next capture; a renewal on a vanished lane fails with `Egress blocked` instead of silently going direct.
+- Each account is **pinned to one lane** the first time it renews, and stays on it, so NYT sees one consistent IP per session instead of a different one every day. The lane is shown under the account name (`via 1.2.3.4:8080`) and in the activity log.
+- **Rotate** (the arrows icon next to an account, shown when there is more than one lane) moves the account to the least-used other lane. Do this when a lane gets blocked, then paste a fresh `NYT-S` cookie for the account.
+- A lane removed from the list is re-chosen the next time you save cookies for the account; a renewal on a vanished lane fails with `Egress blocked` instead of silently going direct.
 - Static residential or ISP proxies work best. Rotating-IP proxies defeat the pin. SOCKS proxies are not supported.
 - Already have a `proxies.txt` for another tool? Bind-mount it read-only and point `PROXIES_FILE` at it (see the compose example); the file is re-read on every use, so edits apply without a restart.
 - Chromium cannot take proxy credentials on its command line, so Newspaparr runs a loopback-only forwarder per browser launch that adds them. WebRTC is restricted to proxied traffic so it cannot reveal the real IP.

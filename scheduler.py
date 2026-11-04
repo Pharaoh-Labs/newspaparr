@@ -99,6 +99,9 @@ def schedule_account_renewal(account) -> None:
         func=_run_account_renewal,
         trigger=DateTrigger(run_date=next_run),
         id=job_id, args=[account.id], replace_existing=True,
+        # Run past-due jobs immediately instead of discarding them —
+        # otherwise renewals missed during downtime never fire again.
+        misfire_grace_time=None,
     )
     logger.info(f"📅 Scheduled renewal for {account.name} at {next_run}")
 
@@ -117,8 +120,10 @@ def _run_account_renewal(account_id: int) -> None:
                 logger.warning(
                     f"Scheduled renewal skipped for {account.name} — library config missing.")
             elif result.success:
+                from helpers import format_duration
                 logger.info(
-                    f"Scheduled renewal succeeded for {account.name} ({result.duration_ms}ms)")
+                    f"Scheduled renewal succeeded for {account.name} "
+                    f"({format_duration(result.duration_ms)})")
             else:
                 logger.warning(
                     f"Scheduled renewal failed for {account.name}: {result.message}")

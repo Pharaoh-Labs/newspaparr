@@ -18,7 +18,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Accounts without a stored next-renewal time now get a concrete, jittered run time instead of an APScheduler interval trigger (which fired at the same second every day).
 
 ### Fixed
-- `websocket-client` was missing from `requirements.txt`, so the headless redemption step could not talk to Chromium in the Docker image.
 - README no longer claims renewals are browser-free; it describes the httpx + headless-Chromium flow that has shipped since 1.1.0.
 
 ## [1.1.0] - 2026-05-09

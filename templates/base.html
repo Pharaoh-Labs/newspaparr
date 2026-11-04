@@ -93,7 +93,100 @@
         </main>
     </div>
 
+    <!-- Renewal progress popups (teamarr-style toast stack) -->
+    <div id="renewal-popups" class="fixed bottom-4 right-4 z-40 space-y-2 w-80 max-w-[calc(100vw-2rem)]"></div>
+    <style>
+      @keyframes rnw-spin { to { transform: rotate(360deg); } }
+      .rnw-spinner {
+        width: 1rem; height: 1rem; border-radius: 9999px; flex: none;
+        border: 2px solid currentColor; border-top-color: transparent;
+        animation: rnw-spin 0.8s linear infinite;
+      }
+    </style>
     <script>
+      window.Renewals = (function () {
+        const pollers = {};   // account_id -> interval handle
+        const container = () => document.getElementById('renewal-popups');
+
+        function card(id) {
+          let el = document.getElementById(`rnw-${id}`);
+          if (!el) {
+            el = document.createElement('div');
+            el.id = `rnw-${id}`;
+            el.className = 'rounded-md border shadow-lg px-4 py-3 text-sm flex items-start gap-3 ' +
+                           'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700';
+            el.innerHTML = '<span class="rnw-icon mt-0.5 text-brand-600"><span class="rnw-spinner"></span></span>' +
+                           '<span class="min-w-0"><strong class="rnw-name block truncate"></strong>' +
+                           '<span class="rnw-msg block text-gray-600 dark:text-gray-400"></span></span>';
+            container().appendChild(el);
+          }
+          return el;
+        }
+
+        function render(id, name, msg, state) {  // state: running | ok | fail
+          const el = card(id);
+          el.querySelector('.rnw-name').textContent = name || `Account ${id}`;
+          el.querySelector('.rnw-msg').textContent = msg || '';
+          const icon = el.querySelector('.rnw-icon');
+          if (state === 'ok') {
+            icon.innerHTML = '&#10003;';
+            icon.className = 'rnw-icon mt-0.5 font-bold text-emerald-600 dark:text-emerald-400';
+          } else if (state === 'fail') {
+            icon.innerHTML = '&#10007;';
+            icon.className = 'rnw-icon mt-0.5 font-bold text-red-600 dark:text-red-400';
+          }
+        }
+
+        function stopPolling(id) {
+          if (pollers[id]) { clearInterval(pollers[id]); delete pollers[id]; }
+        }
+
+        async function poll(id) {
+          let data;
+          try {
+            const r = await fetch(`/accounts/${id}/renew/status`);
+            if (r.status === 404) { stopPolling(id); return; }
+            data = await r.json();
+          } catch (e) { return; }  // transient — keep polling
+          if (data.running) {
+            render(id, data.name, data.message, 'running');
+          } else {
+            stopPolling(id);
+            render(id, data.name, data.message, data.success ? 'ok' : 'fail');
+            // Let the result sink in, then refresh so status pills update.
+            // Still-running renewals are re-attached on load via /renewals/active.
+            setTimeout(() => location.reload(), data.success ? 1800 : 5000);
+          }
+        }
+
+        function attach(id, name, firstMsg) {
+          render(id, name, firstMsg || 'Starting renewal…', 'running');
+          if (!pollers[id]) pollers[id] = setInterval(() => poll(id), 700);
+        }
+
+        async function start(id, name) {
+          attach(id, name);
+          try {
+            const r = await fetch(`/accounts/${id}/renew/start`, { method: 'POST' });
+            if (!r.ok && r.status !== 409) {  // 409 = already running; keep polling
+              const err = await r.json().catch(() => ({}));
+              stopPolling(id);
+              render(id, name, err.error || `Failed to start (${r.status})`, 'fail');
+            }
+          } catch (e) {
+            stopPolling(id);
+            render(id, name, 'Failed to reach the server', 'fail');
+          }
+        }
+
+        // Pick up renewals already in flight (scheduled or from another tab)
+        fetch('/renewals/active').then(r => r.json()).then(runs => {
+          runs.forEach(run => attach(run.account_id, run.name, run.message));
+        }).catch(() => {});
+
+        return { start };
+      })();
+
       // Mobile sidebar toggle
       const mobileBtn = document.getElementById('mobile-menu-btn');
       const sidebar = document.getElementById('sidebar');

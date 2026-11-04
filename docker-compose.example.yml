@@ -11,6 +11,13 @@ services:
       # (same Webshare "direct" format). Pair with PROXIES_FILE below.
       # - /opt/stacks/stockwatch/config/proxies.txt:/app/proxies.txt:ro
     restart: unless-stopped
+    # Renewal verification calls a.nytimes.com (NYT's data-layer API — same
+    # host as their analytics, so DNS ad-blockers NXDOMAIN it). Pin public
+    # DNS so the container bypasses any LAN blocklist; without this every
+    # renewal fails as UNVERIFIED even though the pass was redeemed.
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     environment:
       - TZ=America/New_York
       - PUID=1000

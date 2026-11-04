@@ -33,6 +33,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+import renewal_progress
 from cookie_jar import extract_cookies
 from egress import Lane, LocalForwarder, chrome_proxy_args, proxy_host
 
@@ -51,6 +52,14 @@ class State(str, Enum):
     SESSION_EXPIRED = "session_expired"
     LIBRARY_AUTH_FAILED = "library_auth_failed"
     NETWORK_ERROR = "network_error"
+    # The browser redemption step could not run at all, so the pass was
+    # definitely NOT redeemed. Never report this as success: phase 1 only
+    # proves we obtained an ip_token, not that anyone spent it.
+    REDEMPTION_FAILED = "redemption_failed"
+    # Redemption ran but we could not confirm it against the data-layer.
+    # Treated as failure so a silently-dead renewal surfaces instead of
+    # accruing days of green checkmarks with no actual NYT access.
+    UNVERIFIED = "unverified"
     UNEXPECTED = "unexpected"
 
 
@@ -65,6 +74,28 @@ class RenewalResult:
     @property
     def success(self) -> bool:
         return self.state == State.RENEWED
+
+
+def redemption_deps_status() -> tuple[bool, str]:
+    """Are the pieces the ippass redemption needs actually present?
+
+    Exists because a missing `websocket-client` silently turned redemption into
+    a no-op for months while the UI reported success. Surfaced via /api/health
+    so the gap is visible without waiting for a renewal to run.
+    """
+    missing = []
+    try:
+        import websocket  # noqa: F401
+    except ImportError:
+        missing.append("websocket-client (CDP client)")
+    try:
+        from capture_session import _find_chrome_binary
+        _find_chrome_binary()
+    except Exception as e:
+        missing.append(f"Chrome/Chromium binary ({e})")
+    if missing:
+        return False, "missing: " + ", ".join(missing)
+    return True, "ok"
 
 
 def renew(*, library_url: str, library_user: str, library_pass: str,
@@ -108,7 +139,8 @@ def _renew(*, library_url: str, library_user: str, library_pass: str,
         except Exception as e:
             logger.debug("Skipping cookie %s: %s", c.get("name"), e)
 
-    started = datetime.now()
+    started = datetime.now(timezone.utc)
+    renewal_progress.update(account_id, "Logging into the library proxy…")
     headers = {
         "User-Agent": DEFAULT_UA,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -201,15 +233,23 @@ def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
         from capture_session import _find_chrome_binary, profile_dir_for
     except ImportError as e:
         logger.error("Browser renewal unavailable — capture_session import failed: %s", e)
-        return provisional
+        return _result(State.REDEMPTION_FAILED,
+                       f"Cannot redeem pass — browser support unavailable ({e}).",
+                       final_url=provisional.final_url, started=started)
 
-    chrome_bin = _find_chrome_binary()
-    profile_src = profile_dir_for(account_id)
-    port = _free_port()
-    tmp_dir = tempfile.mkdtemp(prefix=f"nwspr-renew-{account_id}-")
+    renewal_progress.update(account_id, "Launching headless Chrome…")
+    # Locating Chrome and staging the profile must sit inside the try: a
+    # missing binary here used to escape as an unhandled exception, so the
+    # renewal crashed without ever writing a RenewalLog row.
+    tmp_dir = None
+    stderr_file = None
     forwarder: Optional[LocalForwarder] = None
-
     try:
+        chrome_bin = _find_chrome_binary()
+        profile_src = profile_dir_for(account_id)
+        port = _free_port()
+        tmp_dir = tempfile.mkdtemp(prefix=f"nwspr-renew-{account_id}-")
+
         profile_copy = os.path.join(tmp_dir, "profile")
         shutil.copytree(profile_src, profile_copy,
                         symlinks=True, ignore_dangling_symlinks=True)
@@ -217,6 +257,10 @@ def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
         if proxy:
             forwarder = LocalForwarder(Lane(url=proxy, host=proxy_host(proxy))).start()
 
+        # Keep Chrome's stderr: when CDP never comes up, its last lines are
+        # the only clue to why (crashed profile, OOM kill, missing lib, …).
+        stderr_path = os.path.join(tmp_dir, "chrome-stderr.log")
+        stderr_file = open(stderr_path, "wb")
         proc = subprocess.Popen(
             [
                 chrome_bin,
@@ -233,17 +277,28 @@ def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
                 *chrome_proxy_args(forwarder),
             ],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=stderr_file,
         )
 
         try:
             ws_url = _wait_for_cdp(port, timeout=15)
             if not ws_url:
-                logger.warning("Browser renewal: Chrome CDP did not become ready")
-                return provisional
+                status = ("exited with code %s" % proc.poll()
+                          if proc.poll() is not None else "running but CDP unreachable")
+                detail = _chrome_stderr_tail(stderr_file, stderr_path)
+                logger.warning("Browser renewal: Chrome CDP did not become ready "
+                               "(%s). stderr: %s", status, detail or "<empty>")
+                return _result(State.REDEMPTION_FAILED,
+                               f"Cannot redeem pass — headless Chrome did not start "
+                               f"({status}{': ' + detail if detail else ''}).",
+                               final_url=provisional.final_url, started=started)
 
+            # Inject the account's cookies (pasted or profile-extracted) so
+            # the session works even when the profile copy is empty or stale.
+            renewal_progress.update(account_id, "Redeeming the NYT pass…")
+            cookies = extract_cookies(account_id, "nyt")
             result_url = _navigate_and_await_redemption(
-                ws_url, provisional.final_url, timeout=45)
+                ws_url, provisional.final_url, timeout=45, cookies=cookies)
 
             if result_url and "auth/login" in result_url:
                 return _result(State.SESSION_EXPIRED,
@@ -259,11 +314,16 @@ def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
 
     except Exception as e:
         logger.error("Browser renewal error: %s", e)
-        return provisional
+        return _result(State.REDEMPTION_FAILED,
+                       f"Cannot redeem pass — browser redemption failed ({e}).",
+                       final_url=provisional.final_url, started=started)
     finally:
         if forwarder is not None:
             forwarder.stop()
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        if stderr_file:
+            stderr_file.close()
+        if tmp_dir:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
     # Authoritative check: query the NYT data-layer for the live subscription
     # state and expiry. This handles both "purchase-confirmation" (new
@@ -288,9 +348,13 @@ def _verify_subscription(account_id: int, provisional: RenewalResult,
     until we see a future endDate. Falls back to the provisional result only if
     the subscription-type check fails, or if all retries see a stale date (in
     which case we use +24 h as a conservative fallback)."""
+    renewal_progress.update(account_id, "Verifying the pass with NYT…")
     cookies = extract_cookies(account_id, "nyt")
     if not cookies:
-        return provisional
+        return _result(State.UNVERIFIED,
+                       "Redemption ran but could not be verified — no NYT session "
+                       "cookies to query the data-layer with.",
+                       final_url=provisional.final_url, started=started)
 
     jar = httpx.Cookies()
     for c in cookies:
@@ -306,6 +370,10 @@ def _verify_subscription(account_id: int, provisional: RenewalResult,
             delay = _VERIFY_RETRY_DELAYS[attempt - 1]
             logger.info("Data-layer returned stale endDate; retrying in %ds (attempt %d/%d)",
                         delay, attempt + 1, attempts)
+            renewal_progress.update(
+                account_id,
+                f"NYT cache still stale — rechecking in {delay}s "
+                f"(attempt {attempt + 1}/{attempts})…")
             time.sleep(delay)
 
         try:
@@ -314,8 +382,11 @@ def _verify_subscription(account_id: int, provisional: RenewalResult,
                 r = client.get(_NYT_DATA_LAYER)
                 data = r.json()
         except Exception as e:
-            logger.warning("Subscription verify request failed: %s — using provisional", e)
-            return provisional
+            logger.warning("Subscription verify request failed: %s", e)
+            return _result(State.UNVERIFIED,
+                           f"Redemption ran but could not be verified — NYT "
+                           f"data-layer query failed ({e}).",
+                           final_url=provisional.final_url, started=started)
 
         user = data.get("user") or {}
         user_type = user.get("type", "")
@@ -365,6 +436,21 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+def _chrome_stderr_tail(stderr_file, stderr_path: str, max_chars: int = 300) -> str:
+    """Last meaningful stderr lines from a Chrome that failed to come up.
+
+    Filters the ever-present dbus noise — in a container Chrome always spams
+    dbus connection errors that say nothing about why startup failed."""
+    try:
+        stderr_file.flush()
+        with open(stderr_path, "r", errors="replace") as f:
+            lines = [ln.strip() for ln in f
+                     if ln.strip() and ":dbus/" not in ln and "DBus" not in ln]
+        return " | ".join(lines[-3:])[-max_chars:]
+    except Exception:
+        return ""
+
+
 def _wait_for_cdp(port: int, timeout: float = 15.0) -> Optional[str]:
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -380,13 +466,20 @@ def _wait_for_cdp(port: int, timeout: float = 15.0) -> Optional[str]:
 
 
 def _navigate_and_await_redemption(ws_url: str, ippass_url: str,
-                                   timeout: float = 45.0) -> Optional[str]:
-    """Navigate to ippass_url and poll until purchase-confirmation appears."""
+                                   timeout: float = 45.0,
+                                   cookies: Optional[list] = None) -> Optional[str]:
+    """Navigate to ippass_url and poll until purchase-confirmation appears.
+
+    If cookies are given (selenium-shaped dicts), set them via CDP before
+    navigating so the session doesn't depend on the copied profile state."""
     try:
         import websocket
-    except ImportError:
-        logger.error("websocket-client not installed")
-        return None
+    except ImportError as e:
+        # Raise rather than return None: returning None here made the whole
+        # redemption a no-op that the caller still reported as success.
+        raise RuntimeError(
+            "websocket-client is not installed — the ippass redemption cannot run"
+        ) from e
 
     try:
         ws = websocket.create_connection(ws_url, timeout=10)
@@ -414,6 +507,31 @@ def _navigate_and_await_redemption(ws_url: str, ippass_url: str,
 
     try:
         send("Page.enable")
+        if cookies:
+            send("Network.enable")
+            set_count = 0
+            for c in cookies:
+                domain = (c.get("domain") or "").lstrip(".")
+                if not domain:
+                    continue
+                params = {
+                    "name": c["name"],
+                    "value": c["value"],
+                    "url": f"https://{domain}{c.get('path', '/')}",
+                    "domain": c.get("domain"),
+                    "path": c.get("path", "/"),
+                    "secure": bool(c.get("secure")),
+                    "httpOnly": bool(c.get("httpOnly")),
+                }
+                if c.get("expiry"):
+                    params["expires"] = float(c["expiry"])
+                if c.get("sameSite") in ("Strict", "Lax", "None"):
+                    params["sameSite"] = c["sameSite"]
+                resp = recv_for(send("Network.setCookie", params))
+                if (resp.get("result") or {}).get("success"):
+                    set_count += 1
+            logger.info("Browser renewal: injected %d/%d cookies via CDP",
+                        set_count, len(cookies))
         recv_for(send("Page.navigate", {"url": ippass_url}))
 
         deadline = time.time() + timeout

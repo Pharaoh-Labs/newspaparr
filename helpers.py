@@ -13,6 +13,7 @@ import logging
 import cadence
 import egress
 import notify
+import renewal_progress
 from extensions import db
 from models import Account, LibraryConfig, RenewalLog
 from renewer import renew
@@ -25,6 +26,14 @@ logger = logging.getLogger(__name__)
 def utcnow() -> datetime:
     """Naive UTC datetime, matching the DB column type."""
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def format_duration(ms: int) -> str:
+    """Milliseconds → '48.6s' or '1m 12s' — for logs and UI messages."""
+    seconds = (ms or 0) / 1000
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    return f"{int(seconds // 60)}m {int(seconds % 60)}s"
 
 
 def _lane_usage() -> dict:
@@ -59,8 +68,8 @@ def account_lane(account, *, for_capture: bool = False, rotate: bool = False):
 
     if account.egress_lane and current is None and not for_capture:
         raise egress.EgressError(
-            f"Lane {account.egress_lane} is no longer configured. Restore it, or re-capture the NYT "
-            "session to move this account to another lane.")
+            f"Lane {account.egress_lane} is no longer configured. Restore it, or save cookies for "
+            "this account again to move it to another lane.")
 
     chosen = egress.choose_lane(_lane_usage(), lanes, avoid=account.egress_lane if rotate else None)
     if chosen is None:
@@ -93,10 +102,12 @@ def execute_renewal(account):
 
     Returns the renewer.RenewalResult, or None if the library is missing
     its NYT URL config (in which case we still record the failure)."""
+    renewal_progress.begin(account.id, account.name)
     library = LibraryConfig.query.filter_by(type=account.library_type).first()
     if library is None or not library.nyt_url:
         msg = "No library configuration / NYT URL for this account."
         _record_renewal_log(account, success=False, message=msg, duration_ms=0)
+        renewal_progress.finish(account.id, False, msg)
         notify.notify_renewal_failed(account.name, msg)
         return None
 
@@ -114,17 +125,22 @@ def execute_renewal(account):
         account.next_renewal = cadence.after_interval(account.effective_renewal_interval)
         db.session.commit()
         schedule_account_renewal(account)
+        renewal_progress.finish(account.id, False, msg)
         notify.notify_renewal_failed(account.name, msg)
         return None
 
-    result = renew(
-        library_url=library.nyt_url,
-        library_user=account.library_username,
-        library_pass=account.library_password,
-        account_id=account.id,
-        proxy=lane.url if lane else None,
-        egress_label=lane.host if lane else None,
-    )
+    try:
+        result = renew(
+            library_url=library.nyt_url,
+            library_user=account.library_username,
+            library_pass=account.library_password,
+            account_id=account.id,
+            proxy=lane.url if lane else None,
+            egress_label=lane.host if lane else None,
+        )
+    except Exception as e:
+        renewal_progress.finish(account.id, False, f"Renewal crashed: {e}")
+        raise
 
     _record_renewal_log(
         account,
@@ -137,6 +153,7 @@ def execute_renewal(account):
     if result.success and result.expiration:
         # A pass only redeems once the previous one has lapsed, so the next run is
         # the expiry plus a random delay (see cadence.py), never a fixed +1 minute.
+        # next_run() normalises an aware expiry to the naive UTC the column expects.
         account.next_renewal = cadence.next_run(result.expiration)
     else:
         # Cover both success-without-expiration and any failure — failed
@@ -144,6 +161,10 @@ def execute_renewal(account):
         account.next_renewal = cadence.after_interval(account.effective_renewal_interval)
     db.session.commit()
     schedule_account_renewal(account)
+    finish_msg = result.message
+    if result.duration_ms:
+        finish_msg = f"{result.message} ({format_duration(result.duration_ms)})"
+    renewal_progress.finish(account.id, result.success, finish_msg)
 
     if not result.success:
         notify.notify_renewal_failed(account.name, result.message)
