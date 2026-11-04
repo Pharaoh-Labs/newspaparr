@@ -17,6 +17,7 @@ from forms import AccountForm, EditAccountForm, LibraryForm
 from helpers import execute_renewal, format_duration, utcnow
 from icons import icon
 from models import Account, LibraryConfig, RenewalLog
+from renewer import access_code_activation_url
 from paths import DATA_DIR, DEFAULT_DB_URL, LOGS_DIR
 import notify
 import scheduler as _scheduler_mod
@@ -263,6 +264,20 @@ def accounts():
     libraries = {lib.type: lib.name for lib in LibraryConfig.query.all()}
     return render_template('accounts.html', accounts=accounts, libraries=libraries, account_statuses=account_statuses)
 
+def _card_fields_ok(form, library_config, *, has_saved_password=False):
+    """EZproxy libraries log in with a card number + PIN; access-code
+    libraries need neither. Flags missing fields on the form."""
+    if access_code_activation_url(library_config.nyt_url):
+        return True
+    ok = True
+    if not form.library_username.data:
+        form.library_username.errors.append('Required for this library.')
+        ok = False
+    if not form.library_password.data and not has_saved_password:
+        form.library_password.errors.append('Required for this library.')
+        ok = False
+    return ok
+
 @app.route('/accounts/add', methods=['GET', 'POST'])
 def add_account():
     """Add new account"""
@@ -278,16 +293,16 @@ def add_account():
         if not library_config:
             flash('Selected library configuration not found', 'error')
             return redirect(url_for('add_account'))
-        
+        if not _card_fields_ok(form, library_config):
+            return render_template('account_form.html', form=form, title='Add Account')
+
         # Create account (NYT-only as of v1.0.0)
         account = Account(
             name=form.name.data,
             library_type=form.library_type.data,
-            library_username=form.library_username.data,
-            library_password=form.library_password.data,
+            library_username=form.library_username.data or '',
+            library_password=form.library_password.data or '',
             newspaper_type='nyt',
-            username=None,
-            password=None,
             renewal_hours=library_config.default_renewal_hours,
             renewal_interval=form.renewal_interval.data if form.renewal_interval.data else None,
             active=form.active.data
@@ -329,10 +344,14 @@ def edit_account(id):
         if not library_config:
             flash('Selected library configuration not found', 'error')
             return redirect(url_for('edit_account', id=id))
+        if not _card_fields_ok(form, library_config,
+                               has_saved_password=bool(original_library_password)):
+            return render_template('account_form.html', form=form,
+                                   title='Edit Account', account=account)
 
         account.name = form.name.data
         account.library_type = form.library_type.data
-        account.library_username = form.library_username.data
+        account.library_username = form.library_username.data or ''
 
         # Only update library password if a new value was provided
         if form.library_password.data:

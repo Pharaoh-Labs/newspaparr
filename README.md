@@ -29,7 +29,7 @@ The hard part is the *initial* NYT login — NYT actively detects automation. Ne
 ### Requirements
 
 - Docker + Docker Compose
-- A library card at a library that offers NYT digital access via EZproxy
+- A library card at a library that offers NYT digital access via EZproxy, or a reusable NYT access-code link from your library
 - An NYT.com account (free, no paid subscription needed)
 
 ### Run it
@@ -100,6 +100,10 @@ services:
    - `LIBRARY_AUTH_FAILED` — library card / PIN wrong
    - `NETWORK_ERROR` — couldn't reach the library or NYT
    - `UNEXPECTED` — something else; details in the activity log
+
+### Access-code libraries
+
+Some libraries (e.g. Austin Public Library) skip EZproxy and hand out a reusable NYT access-code link like `https://www.nytimes.com/subscription/redeem?campaignId=…&gift_code=…`. Paste that link as the library's NYT Access URL and leave the account's card number and PIN blank. Each renewal opens the code's `/activate-access/access-code` page in headless Chrome with your captured NYT session, which redeems it, then confirms the new expiry with NYT. The next renewal is scheduled for when that pass expires.
 
 ## Architecture (code map)
 

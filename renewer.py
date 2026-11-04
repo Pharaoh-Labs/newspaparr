@@ -5,6 +5,11 @@ The renewal is a two-phase process:
   2. Headless Chrome visits the ippass URL so the SPA's Apollo Client can fire
      the redeemIpPass GraphQL mutation — the only path the server validates.
 
+Libraries that hand out a reusable NYT access code instead
+(nytimes.com/subscription/redeem?gift_code=...) skip phase 1: the code is
+turned straight into an /activate-access/access-code URL, whose SPA fires
+redeemAccessCode on load the same way.
+
 Attempting the mutation via httpx always returns pass_redemption_error because
 the server validates the Apollo Client request format (APQ, specific headers)
 that we cannot reliably replicate. Headless Chrome with the captured profile
@@ -29,7 +34,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Optional
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
 import httpx
 
@@ -122,6 +127,14 @@ def renew(*, library_url: str, library_user: str, library_pass: str,
             logger.debug("Skipping cookie %s: %s", c.get("name"), e)
 
     started = datetime.now(timezone.utc)
+
+    # Access-code libraries need no library login — go straight to the browser.
+    activation_url = access_code_activation_url(library_url)
+    if activation_url:
+        provisional = RenewalResult(State.RENEWED, "NYT access code redeemed",
+                                    final_url=activation_url)
+        return _redeem_via_browser(provisional, account_id=account_id, started=started)
+
     renewal_progress.update(account_id, "Logging into the library proxy…")
     headers = {
         "User-Agent": DEFAULT_UA,
@@ -194,17 +207,112 @@ def renew(*, library_url: str, library_user: str, library_pass: str,
     return _redeem_via_browser(phase1, account_id=account_id, started=started)
 
 
+# ---------- access-code libraries ----------
+
+def access_code_activation_url(library_url: str) -> Optional[str]:
+    """The /activate-access/access-code URL for an NYT access-code link, or
+    None if library_url is an ordinary EZproxy URL.
+
+    The /subscription/redeem landing page only pre-fills a form and waits for
+    a click on Redeem; its submit handler then navigates to this activation
+    URL, whose SPA fires redeemAccessCode on load. Going there directly skips
+    the click. Already-converted activation URLs are passed through."""
+    parsed = urlparse((library_url or "").strip())
+    if not _is_nyt_host(parsed.geturl()):
+        return None
+    path = parsed.path.rstrip("/")
+    query = parse_qs(parsed.query)
+    if path == "/activate-access/access-code" and query.get("access_code"):
+        return parsed.geturl()
+    if not path.startswith("/subscription/redeem"):
+        return None
+    code = (query.get("access_code") or query.get("gift_code") or [""])[0].strip()
+    if not code:
+        return None
+    # The landing page tags the redemption with its use case: /subscription/redeem
+    # is "news", /subscription/redeem/all-access is "all_access", etc.
+    use_case = path.removeprefix("/subscription/redeem").strip("/") or "news"
+    params = {"access_code": code,
+              "source": f"access_code_redemption_lp:{use_case.replace('-', '_')}"}
+    campaign = (query.get("campaignId") or [""])[0]
+    if campaign:
+        params["campaignId"] = campaign
+    return "https://www.nytimes.com/activate-access/access-code?" + urlencode(params)
+
+
+def _is_access_code_url(url: Optional[str]) -> bool:
+    return bool(url) and "/activate-access/access-code" in url
+
+
+_ACCESS_CODE_ERRORS = {
+    "access_code_expired":
+        "The library's NYT access code has expired — get a fresh link from the library.",
+    "access_code_already_redeemed":
+        "NYT says the library's access code has already been redeemed.",
+    "access_code_invalid":
+        "NYT doesn't recognise the library's access code — check the library's NYT URL.",
+}
+
+
+def _access_code_result(captured: Optional[str], *, final_url: str,
+                        started: datetime) -> Optional[RenewalResult]:
+    """Turn NYT's redeemAccessCode reply into a result, or None to fall back
+    to the data-layer check — when no reply was seen, or NYT answered
+    user_already_subscriber (e.g. the previous pass is still running)."""
+    try:
+        payload = json.loads(captured or "")
+    except ValueError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+
+    errors = payload.get("errors") or []
+    if errors:
+        code = (errors[0] or {}).get("message") or "unknown error"
+        logger.info("redeemAccessCode returned error: %s", code)
+        if code == "user_already_subscriber":
+            return None
+        return _result(State.REDEMPTION_FAILED,
+                       _ACCESS_CODE_ERRORS.get(code, f"NYT rejected the access code ({code})."),
+                       final_url=final_url, started=started)
+
+    data = (payload.get("data") or {}).get("redeemAccessCode") or {}
+    if data.get("success") is False:
+        return _result(State.REDEMPTION_FAILED, "NYT did not redeem the access code.",
+                       final_url=final_url, started=started)
+
+    # subscriptionEndDate may be date-only, so also derive an end from the
+    # duration and take whichever is later.
+    now = datetime.now(timezone.utc)
+    ends = [_parse_end_date(data.get("subscriptionEndDate"))]
+    try:
+        ends.append(now + timedelta(days=int(data.get("subscriptionDurationDays"))))
+    except (TypeError, ValueError):
+        pass
+    end = max((e for e in ends if e), default=None)
+    logger.info("redeemAccessCode: endDate=%s durationDays=%s",
+                data.get("subscriptionEndDate"), data.get("subscriptionDurationDays"))
+    if end and end > now:
+        return _result(State.RENEWED, "NYT access code redeemed", expiration=end,
+                       final_url=final_url, started=started)
+    return None
+
+
 # ---------- headless Chrome redemption ----------
 
 def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
                         started: datetime) -> RenewalResult:
-    """Open the ippass URL in headless Chrome with the captured profile.
+    """Open the ippass (or access-code) URL in headless Chrome with the
+    captured profile.
 
-    The SPA's Apollo Client fires redeemIpPass automatically on page load.
-    Success is confirmed by querying the NYT data-layer API after Chrome runs —
-    the authoritative source for subscription state and expiry date.
+    The SPA's Apollo Client fires redeemIpPass / redeemAccessCode
+    automatically on page load. Success is confirmed by querying the NYT
+    data-layer API after Chrome runs — the authoritative source for
+    subscription state and expiry date.
     """
-    if not provisional.final_url or "ip_token" not in provisional.final_url:
+    if not provisional.final_url or not (
+            "ip_token" in provisional.final_url
+            or _is_access_code_url(provisional.final_url)):
         return provisional
 
     try:
@@ -270,13 +378,24 @@ def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
             # the session works even when the profile copy is empty or stale.
             renewal_progress.update(account_id, "Redeeming the NYT pass…")
             cookies = extract_cookies(account_id, "nyt")
-            result_url = _navigate_and_await_redemption(
-                ws_url, provisional.final_url, timeout=45, cookies=cookies)
+            access_code = _is_access_code_url(provisional.final_url)
+            result_url, captured = _navigate_and_await_redemption(
+                ws_url, provisional.final_url, timeout=45, cookies=cookies,
+                capture_op="redeemAccessCode" if access_code else None)
 
             if result_url and "auth/login" in result_url:
                 return _result(State.SESSION_EXPIRED,
                                "Captured NYT session expired — re-capture from the dashboard.",
                                final_url=provisional.final_url, started=started)
+
+            # The data-layer often lists no subscriptions at all for an
+            # access-code pass, so NYT's own reply to the redemption is the
+            # only reliable source for its expiry (and for why it failed).
+            if access_code:
+                outcome = _access_code_result(captured, final_url=provisional.final_url,
+                                              started=started)
+                if outcome:
+                    return outcome
 
         finally:
             proc.terminate()
@@ -299,7 +418,8 @@ def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
     # Authoritative check: query the NYT data-layer for the live subscription
     # state and expiry. This handles both "purchase-confirmation" (new
     # redemption) and "pass_still_active" (already-active pass) as success.
-    return _verify_subscription(account_id, provisional, started=started)
+    return _verify_subscription(account_id, provisional, started=started,
+                                any_bundle=_is_access_code_url(provisional.final_url))
 
 
 _NYT_DATA_LAYER = "https://a.nytimes.com/svc/nyt/data-layer"
@@ -309,9 +429,13 @@ _VERIFY_RETRY_DELAYS = (5, 10, 20)  # seconds between attempts when cache is sta
 
 
 def _verify_subscription(account_id: int, provisional: RenewalResult,
-                          *, started: datetime) -> RenewalResult:
+                          *, started: datetime, any_bundle: bool = False) -> RenewalResult:
     """Query the NYT data-layer API to confirm the subscription is active and
     obtain the real expiry date.
+
+    An ippass shows up as an "ADA" bundle. An access code's bundle type isn't
+    pinned down, so any_bundle=True also accepts the latest-ending
+    subscription of any type when no ADA one is present.
 
     ZUORA data is cached in the data-layer and may be stale immediately after
     renewal. We retry up to len(_VERIFY_RETRY_DELAYS)+1 times with short waits
@@ -369,26 +493,50 @@ def _verify_subscription(account_id: int, provisional: RenewalResult,
                            f"(type={user_type}). Re-capture may be needed.",
                            final_url=provisional.final_url, started=started)
 
-        now = datetime.now(timezone.utc)
-        for sub in sub_info.get("subscriptions") or []:
-            if "ADA" in (sub.get("bundleType") or ""):
-                end = sub.get("endDate")
-                if end:
-                    parsed = _parse_iso(end)
-                    if parsed and parsed > now:
-                        logger.info("Data-layer confirmed ADA expiry: %s", parsed.isoformat())
-                        return _result(State.RENEWED, "NYT pass redeemed",
-                                       expiration=parsed,
-                                       final_url=provisional.final_url, started=started)
-                    logger.debug("Data-layer ADA endDate is stale: %s", end)
-                break  # found ADA sub but date is stale — retry outer loop
+        subs = sub_info.get("subscriptions") or []
+        end = _pass_end_date(subs, any_bundle=any_bundle)
+        if end and end > datetime.now(timezone.utc):
+            logger.info("Data-layer confirmed pass expiry: %s", end.isoformat())
+            return _result(State.RENEWED, "NYT pass redeemed",
+                           expiration=end,
+                           final_url=provisional.final_url, started=started)
+        logger.debug("Data-layer endDate is stale or missing: %s (bundles: %s)", end,
+                     [s.get("bundleType") for s in subs])
 
     # All retries exhausted without a fresh date; use +24 h as safe fallback.
-    logger.warning("Data-layer ADA endDate still stale after %d attempts; using +24h fallback",
+    logger.warning("Data-layer endDate still stale after %d attempts; using +24h fallback",
                    attempts)
     return _result(State.RENEWED, "NYT pass redeemed",
                    expiration=datetime.now(timezone.utc) + timedelta(hours=24),
                    final_url=provisional.final_url, started=started)
+
+
+def _pass_end_date(subs: list, *, any_bundle: bool) -> Optional[datetime]:
+    """endDate of the first ADA subscription; with any_bundle, falls back to
+    the latest endDate across every subscription."""
+    for sub in subs:
+        if "ADA" in (sub.get("bundleType") or ""):
+            return _parse_iso(sub.get("endDate") or "")
+    if not any_bundle:
+        return None
+    ends = [_parse_iso(sub.get("endDate") or "") for sub in subs]
+    return max((e for e in ends if e), default=None)
+
+
+def _parse_end_date(value) -> Optional[datetime]:
+    """An NYT end date: ISO string (any offset / precision) or epoch."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return datetime.fromtimestamp(value / 1000 if value > 1e11 else value, timezone.utc)
+    if not isinstance(value, str) or not value:
+        return None
+    parsed = _parse_iso(value)
+    if parsed:
+        return parsed
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 def _parse_iso(value: str) -> Optional[datetime]:
@@ -435,13 +583,56 @@ def _wait_for_cdp(port: int, timeout: float = 15.0) -> Optional[str]:
     return None
 
 
+_CAPTURE_KEY = "__nwspr_redeem"
+
+
+def _capture_response_js(op: str) -> str:
+    """Page script that stashes the response to the GraphQL operation `op` in
+    sessionStorage, which survives the SPA's redirect to purchase-confirmation.
+    Hooks both fetch and XHR since Apollo's fetch may be an XHR ponyfill; the
+    stash is written before the app sees the response, so before any redirect."""
+    return """(() => {
+  const op = %s, key = %s;
+  const stash = (text) => { try { sessionStorage.setItem(key, text); } catch (e) {} };
+  const origFetch = window.fetch;
+  if (origFetch) {
+    window.fetch = async function (input, init) {
+      const res = await origFetch.apply(this, arguments);
+      const body = init && typeof init.body === "string" ? init.body : "";
+      if (body.includes(op)) {
+        try { stash(await res.clone().text()); } catch (e) {}
+      }
+      return res;
+    };
+  }
+  const origSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.send = function (body) {
+    if (typeof body === "string" && body.includes(op)) {
+      this.addEventListener("load", () => stash(this.responseText));
+    }
+    return origSend.apply(this, arguments);
+  };
+})();""" % (json.dumps(op), json.dumps(_CAPTURE_KEY))
+
+
+_PAGE_STATE_JS = """JSON.stringify({
+  href: window.location.href,
+  captured: (() => { try { return sessionStorage.getItem(%s); } catch (e) { return null; } })()
+})""" % json.dumps(_CAPTURE_KEY)
+
+
 def _navigate_and_await_redemption(ws_url: str, ippass_url: str,
                                    timeout: float = 45.0,
-                                   cookies: Optional[list] = None) -> Optional[str]:
+                                   cookies: Optional[list] = None,
+                                   capture_op: Optional[str] = None,
+                                   ) -> tuple[Optional[str], Optional[str]]:
     """Navigate to ippass_url and poll until purchase-confirmation appears.
 
     If cookies are given (selenium-shaped dicts), set them via CDP before
-    navigating so the session doesn't depend on the copied profile state."""
+    navigating so the session doesn't depend on the copied profile state.
+
+    Returns (final page URL, raw response body of the capture_op GraphQL
+    call or None)."""
     try:
         import websocket
     except ImportError as e:
@@ -455,7 +646,7 @@ def _navigate_and_await_redemption(ws_url: str, ippass_url: str,
         ws = websocket.create_connection(ws_url, timeout=10)
     except Exception as e:
         logger.warning("CDP WebSocket failed: %s", e)
-        return None
+        return None, None
 
     _id = [1]
 
@@ -502,44 +693,42 @@ def _navigate_and_await_redemption(ws_url: str, ippass_url: str,
                     set_count += 1
             logger.info("Browser renewal: injected %d/%d cookies via CDP",
                         set_count, len(cookies))
+        if capture_op:
+            recv_for(send("Page.addScriptToEvaluateOnNewDocument",
+                          {"source": _capture_response_js(capture_op)}))
         recv_for(send("Page.navigate", {"url": ippass_url}))
+
+        def page_state() -> tuple[str, Optional[str]]:
+            msg = recv_for(send("Runtime.evaluate",
+                                {"expression": _PAGE_STATE_JS, "returnByValue": True}),
+                           limit=3.0)
+            value = ((msg.get("result") or {}).get("result") or {}).get("value")
+            try:
+                state = json.loads(value or "{}")
+            except ValueError:
+                state = {}
+            return state.get("href") or "", state.get("captured")
 
         deadline = time.time() + timeout
         while time.time() < deadline:
             time.sleep(1.0)
-            mid = send("Runtime.evaluate", {"expression": "window.location.href"})
-            ws.settimeout(3.0)
-            for _ in range(30):
-                try:
-                    msg = json.loads(ws.recv())
-                    if msg.get("id") == mid:
-                        url = ((msg.get("result") or {})
-                               .get("result", {}).get("value", ""))
-                        if "purchase-confirmation" in url or "auth/login" in url:
-                            return url
-                        break
-                except Exception:
-                    break
+            url, captured = page_state()
+            if "purchase-confirmation" in url or "auth/login" in url:
+                return url, captured
+            # A rejected redemption renders an error in place — no redirect
+            # is coming, so stop waiting.
+            if captured and '"errors"' in captured:
+                return url, captured
 
         # Final read
-        mid = send("Runtime.evaluate", {"expression": "window.location.href"})
-        ws.settimeout(5.0)
-        for _ in range(30):
-            try:
-                msg = json.loads(ws.recv())
-                if msg.get("id") == mid:
-                    return ((msg.get("result") or {})
-                            .get("result", {}).get("value"))
-            except Exception:
-                break
+        url, captured = page_state()
+        return url or None, captured
 
     finally:
         try:
             ws.close()
         except Exception:
             pass
-
-    return None
 
 
 # ---------- response classification (phase 1) ----------
