@@ -312,7 +312,7 @@ def add_account():
 @app.route('/accounts/<int:id>/edit', methods=['GET', 'POST'])
 def edit_account(id):
     """Edit existing account"""
-    account = Account.query.get_or_404(id)
+    account = db.get_or_404(Account, id)
     
     # Store original library password to preserve if not changed
     original_library_password = account.library_password
@@ -364,7 +364,7 @@ def edit_account(id):
 @app.route('/accounts/<int:id>/delete', methods=['POST'])
 def delete_account(id):
     """Delete account"""
-    account = Account.query.get_or_404(id)
+    account = db.get_or_404(Account, id)
 
     cancel_account_renewal(id)
 
@@ -380,7 +380,7 @@ def renewal_start(id):
     The UI polls /renew/status for streamed progress."""
     import threading
     import renewal_progress
-    account = Account.query.get_or_404(id)
+    account = db.get_or_404(Account, id)
     if renewal_progress.is_running(account.id):
         return jsonify(error='Renewal already running for this account'), 409
 
@@ -423,7 +423,7 @@ def renewals_active():
 @app.route('/accounts/<int:id>/renew', methods=['POST'])
 def manual_renewal(id):
     """Manually trigger renewal for an account."""
-    account = Account.query.get_or_404(id)
+    account = db.get_or_404(Account, id)
     try:
         result = execute_renewal(account)
         if result is None:
@@ -448,14 +448,14 @@ NYT_LOGIN_URL = 'https://myaccount.nytimes.com/auth/login'
 
 @app.route('/accounts/<int:id>/capture')
 def capture_view(id):
-    account = Account.query.get_or_404(id)
+    account = db.get_or_404(Account, id)
     return render_template('capture_view.html', account=account)
 
 
 @app.route('/accounts/<int:id>/capture/start', methods=['POST'])
 def capture_start(id):
     from capture_session import CaptureSessionManager
-    account = Account.query.get_or_404(id)
+    account = db.get_or_404(Account, id)
     try:
         lane = account_lane(account, for_capture=True)
         session = CaptureSessionManager().start(
@@ -472,7 +472,7 @@ def capture_start(id):
 def rotate_egress(id):
     """Move the account to a different lane. The NYT trust in the captured profile belongs to the
     old exit IP, so the user is sent to re-capture right away."""
-    account = Account.query.get_or_404(id)
+    account = db.get_or_404(Account, id)
     try:
         lane = account_lane(account, for_capture=True, rotate=True)
     except egress.EgressError as e:
@@ -507,10 +507,19 @@ def paste_cookies(id):
     et al.) instead of using the noVNC browser. Feeds the same jar the
     renewal flow reads."""
     from cookie_jar import save_pasted_cookies
-    account = Account.query.get_or_404(id)
+    account = db.get_or_404(Account, id)
     raw = request.form.get('cookies_json', '').strip()
     if not raw:
         flash('Paste the exported cookie JSON first.', 'error')
+        return redirect(url_for('capture_view', id=id))
+    # Saving cookies is the capture moment for this path: pin the account to a lane now (or
+    # re-pin it if its lane vanished from the config) so the fresh NYT-S session and every
+    # renewal that replays it share one exit IP. Refuse, like capture_start, when egress is
+    # required but no lane is usable -- the cookies would only ever be replayed direct.
+    try:
+        lane = account_lane(account, for_capture=True)
+    except egress.EgressError as e:
+        flash(f'Egress blocked: {e}', 'error')
         return redirect(url_for('capture_view', id=id))
     try:
         cookies = save_pasted_cookies(account.id, raw)
@@ -519,7 +528,8 @@ def paste_cookies(id):
         return redirect(url_for('capture_view', id=id))
     account.profile_captured_at = utcnow()
     db.session.commit()
-    flash(f'Saved {len(cookies)} cookies for {account.name}. '
+    via = f' Renewals for it leave via {lane.host}.' if lane else ''
+    flash(f'Saved {len(cookies)} cookies for {account.name}.{via} '
           f'Run a renewal to verify the session works.', 'success')
     return redirect(url_for('accounts'))
 
@@ -558,7 +568,7 @@ def add_library():
 @app.route('/libraries/<int:id>/edit', methods=['GET', 'POST'])
 def edit_library(id):
     """Edit existing library configuration"""
-    library = LibraryConfig.query.get_or_404(id)
+    library = db.get_or_404(LibraryConfig, id)
     
     if request.method == 'GET':
         form = LibraryForm(data={
@@ -588,7 +598,7 @@ def edit_library(id):
 @app.route('/libraries/<int:id>/delete', methods=['POST'])
 def delete_library(id):
     """Delete library configuration"""
-    library = LibraryConfig.query.get_or_404(id)
+    library = db.get_or_404(LibraryConfig, id)
     
     # Check if any accounts are using this library
     accounts_using = Account.query.filter_by(library_type=library.type).count()

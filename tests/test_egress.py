@@ -340,3 +340,42 @@ def test_status_endpoint_reports_egress(app_client, monkeypatch):
     data = client.get("/api/status").get_json()
     assert data["egress"] == {"lanes": ["10.0.0.1:1"], "required": True, "source": None}
     assert "a:b" not in str(data)
+
+
+def test_paste_cookies_pins_and_repins_lane(app_client, monkeypatch):
+    """Saving cookies is the capture moment for the paste path: it must pin the account to a
+    lane, and re-pin it when the pinned lane has vanished from the config (the recovery the
+    `Egress blocked` message tells the user to perform)."""
+    app_mod, client = app_client
+    import cookie_jar
+    from models import Account
+
+    saved = []
+    monkeypatch.setattr(cookie_jar, "save_pasted_cookies",
+                        lambda account_id, raw, newspaper_type="nyt": saved.append(raw) or [{"name": "NYT-S"}])
+    monkeypatch.setenv("PROXY_URLS", "http://a:b@10.0.0.1:1")
+    monkeypatch.setenv("PROXIES_FILE", os.path.join(os.sep, "nonexistent", "proxies.txt"))
+    monkeypatch.delenv("PROXY_REQUIRED", raising=False)
+    with app_mod.app.app_context():
+        acct = Account(name="paste-pin", library_type="lib", library_username="u",
+                       library_password="p", egress_lane="10.9.9.9:9")   # lane no longer configured
+        app_mod.db.session.add(acct)
+        app_mod.db.session.commit()
+        acct_id = acct.id
+    try:
+        r = client.post(f"/accounts/{acct_id}/cookies", data={"cookies_json": "x" * 40})
+        assert r.status_code == 302 and r.headers["Location"].endswith("/accounts")
+        assert saved == ["x" * 40]
+        with app_mod.app.app_context():
+            assert app_mod.db.session.get(Account, acct_id).egress_lane == "10.0.0.1:1"
+
+        # Required but nothing usable: refuse and keep the cookies unsaved.
+        monkeypatch.delenv("PROXY_URLS")
+        monkeypatch.setenv("PROXY_REQUIRED", "true")
+        r = client.post(f"/accounts/{acct_id}/cookies", data={"cookies_json": "y" * 40})
+        assert r.status_code == 302 and r.headers["Location"].endswith(f"/accounts/{acct_id}/capture")
+        assert saved == ["x" * 40]
+    finally:
+        with app_mod.app.app_context():
+            app_mod.db.session.delete(app_mod.db.session.get(Account, acct_id))
+            app_mod.db.session.commit()
