@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 import pytz
 from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
+from wtforms.fields.choices import SelectChoice
 
 from extensions import db, migrate
 from forms import AccountForm, EditAccountForm, LibraryForm
@@ -273,7 +274,7 @@ def add_account():
     
     # Get available active library configurations from database
     library_configs = LibraryConfig.query.filter_by(active=True).all()
-    form.library_type.choices = [(config.type, config.name) for config in library_configs]
+    form.library_type.choices = [SelectChoice(config.type, config.name) for config in library_configs]
     
     if form.validate_on_submit():
         # Find the library configuration
@@ -320,7 +321,7 @@ def edit_account(id):
 
     # Get available active library configurations from database
     library_configs = LibraryConfig.query.filter_by(active=True).all()
-    form.library_type.choices = [(config.type, config.name) for config in library_configs]
+    form.library_type.choices = [SelectChoice(config.type, config.name) for config in library_configs]
 
     # Clear password field on GET to show placeholder
     if request.method == 'GET':
@@ -446,7 +447,7 @@ def capture_finish(id, token):
     if session is None or session.account_id != id:
         return jsonify(error='session not found'), 404
     if save:
-        account = Account.query.get(id)
+        account = db.session.get(Account, id)
         if account is not None:
             account.profile_captured_at = utcnow()
             db.session.commit()
@@ -624,7 +625,7 @@ def api_logs():
     
     log_data = []
     for log in logs:
-        account = Account.query.get(log.account_id)
+        account = db.session.get(Account, log.account_id)
         log_data.append({
             'id': log.id,
             'timestamp': localtime_filter(log.timestamp).isoformat() if log.timestamp else None,

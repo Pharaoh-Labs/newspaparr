@@ -133,6 +133,8 @@ def test_execute_renewal_schedules_jittered_after_expiry(app_client, monkeypatch
             naive_expiry = expiry.replace(tzinfo=None)
             assert naive_expiry + timedelta(minutes=15) <= acct.next_renewal <= naive_expiry + timedelta(minutes=45)
         finally:
+            from models import RenewalLog
+            RenewalLog.query.filter_by(account_id=acct.id).delete()
             app_mod.db.session.delete(acct)
             app_mod.db.session.delete(lib)
             app_mod.db.session.commit()
