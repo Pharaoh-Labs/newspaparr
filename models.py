@@ -37,6 +37,8 @@ class Account(db.Model):
     next_renewal = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=_utcnow)
     profile_captured_at = db.Column(db.DateTime, nullable=True)
+    # Proxy lane (host:port) this account's traffic is pinned to; set at capture time. See egress.py.
+    egress_lane = db.Column(db.String(100), nullable=True)
 
     @property
     def display_name(self):

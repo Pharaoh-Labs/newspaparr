@@ -1,5 +1,6 @@
 """WTForms classes for the account and library editors."""
 from flask_wtf import FlaskForm
+from wtforms.fields.choices import SelectChoice
 from wtforms import (BooleanField, IntegerField, PasswordField, SelectField,
                      StringField)
 from wtforms.validators import DataRequired, NumberRange
@@ -34,8 +35,8 @@ class LibraryForm(FlaskForm):
     """Library configuration — the EZproxy NYT URL and a couple defaults."""
     name = StringField('Library Name', validators=[DataRequired()])
     type = SelectField('Library Type', choices=[
-        ('generic_oclc', 'OCLC Library'),
-        ('custom', 'Custom Library'),
+        SelectChoice('generic_oclc', 'OCLC Library'),
+        SelectChoice('custom', 'Custom Library'),
     ])
     nyt_url = StringField(
         'NYT Access URL',
@@ -50,6 +51,6 @@ class LibraryForm(FlaskForm):
         'Default Renewal Hours',
         validators=[NumberRange(min=1, max=168)],
         default=24,
-        description='Renewals will run at this interval + 1 minute',
+        description='Fallback interval when NYT reports no expiry; a random delay is added',
     )
     active = BooleanField('Active', default=True)

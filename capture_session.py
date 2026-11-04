@@ -27,6 +27,7 @@ import threading
 import time
 from typing import Optional
 
+from egress import Lane, LocalForwarder, chrome_proxy_args, proxy_host
 from paths import DATA_DIR
 
 logger = logging.getLogger(__name__)
@@ -153,9 +154,13 @@ def sanitize_profile_for_launch(account_id: int) -> None:
 
 
 class CaptureSession:
-    def __init__(self, account_id: int, start_url: str):
+    def __init__(self, account_id: int, start_url: str, proxy_url: Optional[str] = None):
         self.account_id = account_id
         self.start_url = start_url
+        # The account's egress lane. Chrome is pointed at a loopback forwarder for it, so the
+        # NYT trust minted during this capture belongs to the lane's IP, never the host's.
+        self.proxy_url = proxy_url
+        self.forwarder: Optional[LocalForwarder] = None
         self.token = secrets.token_urlsafe(16)
         self.display = DISPLAY_NUM
         self.vnc_port = VNC_PORT
@@ -178,6 +183,9 @@ class CaptureSession:
         time.sleep(0.7)
 
         chrome_bin = _find_chrome_binary()
+        if self.proxy_url:
+            self.forwarder = LocalForwarder(
+                Lane(url=self.proxy_url, host=proxy_host(self.proxy_url))).start()
         # Minimal flags: Chrome should look like a real user's Chrome to DataDome.
         # Notably we do NOT force --user-agent (a Windows UA on Linux Chrome is a
         # detectable consistency mismatch) and we do NOT pass
@@ -190,6 +198,7 @@ class CaptureSession:
             '--disable-dev-shm-usage',
             '--no-default-browser-check',
             '--no-first-run',
+            *chrome_proxy_args(self.forwarder),
             self.start_url,
         ]
         if os.geteuid() == 0:
@@ -246,6 +255,9 @@ class CaptureSession:
                 self.xvfb.wait(timeout=3)
             except subprocess.TimeoutExpired:
                 self.xvfb.kill()
+        if self.forwarder is not None:
+            self.forwarder.stop()
+            self.forwarder = None
         self.state = 'stopped'
 
 
@@ -334,13 +346,14 @@ class CaptureSessionManager:
                 logger.warning("capture_session: stop_all failed for %s: %s",
                                s.token, e)
 
-    def start(self, account_id: int, start_url: str) -> CaptureSession:
+    def start(self, account_id: int, start_url: str,
+              proxy_url: Optional[str] = None) -> CaptureSession:
         with self._lock:
             for token, s in list(self.sessions.items()):
                 if s.state == 'active':
                     s.stop()
                     del self.sessions[token]
-            session = CaptureSession(account_id, start_url)
+            session = CaptureSession(account_id, start_url, proxy_url=proxy_url)
         session.start()
         self.sessions[session.token] = session
         return session
