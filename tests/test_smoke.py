@@ -75,3 +75,44 @@ def test_add_account_with_blank_interval_creates_account(app_client, monkeypatch
     with app_mod.app.app_context():
         account = app_mod.Account.query.filter_by(name="Blank Interval").one()
         assert account.renewal_interval is None
+
+
+def test_access_code_library_account_needs_no_card(app_client, monkeypatch):
+    """Access-code libraries have no library login, so card + PIN are optional."""
+    app_mod, client = app_client
+    monkeypatch.setattr(app_mod, "schedule_account_renewal", lambda account: None)
+    with app_mod.app.app_context():
+        lib = app_mod.LibraryConfig(
+            name="Code Library", type="code_lib",
+            nyt_url="https://www.nytimes.com/subscription/redeem?campaignId=X&gift_code=abc",
+            default_renewal_hours=72, active=True)
+        app_mod.db.session.add(lib)
+        app_mod.db.session.commit()
+
+    resp = client.post("/accounts/add", data={
+        "name": "No Card", "library_type": "code_lib",
+        "library_username": "", "library_password": "", "active": "y",
+    })
+    assert resp.status_code == 302, resp.get_data(as_text=True)
+    with app_mod.app.app_context():
+        account = app_mod.Account.query.filter_by(name="No Card").one()
+        assert account.library_username == ""
+
+
+def test_ezproxy_library_account_still_needs_card(app_client):
+    app_mod, client = app_client
+    with app_mod.app.app_context():
+        lib = app_mod.LibraryConfig(name="Proxy Library", type="proxy_lib",
+                                    nyt_url="https://example.test/login?url=nyt",
+                                    default_renewal_hours=24, active=True)
+        app_mod.db.session.add(lib)
+        app_mod.db.session.commit()
+
+    resp = client.post("/accounts/add", data={
+        "name": "Missing Card", "library_type": "proxy_lib",
+        "library_username": "", "library_password": "", "active": "y",
+    })
+    assert resp.status_code == 200
+    assert "Required for this library." in resp.get_data(as_text=True)
+    with app_mod.app.app_context():
+        assert app_mod.Account.query.filter_by(name="Missing Card").first() is None
