@@ -22,7 +22,7 @@ The hard part is the *initial* NYT login — NYT actively detects automation. Ne
 - **One-time session capture** — log into NYT once via an in-dashboard browser
 - **Apprise notifications** — ~80 services (Discord, ntfy, Telegram, Slack, mailto, …) on renewal failure or recovery
 - **Multi-account** — capture each household member's NYT session independently
-- **Scheduling** — renewals automatically rescheduled around the next pass expiration
+- **Scheduling** — renewals rescheduled around the next pass expiration with a random delay, plus optional quiet hours, so nothing fires at the same second every day
 - **Activity log** — every attempt recorded with status, message, and duration
 
 ## Quick start
@@ -86,6 +86,23 @@ services:
 ```
 
 `SECRET_KEY` is auto-generated and persisted to `data/secret_key` (mode 0600) on first boot. Set it explicitly via the env var if you want to manage it yourself.
+
+### Renewal cadence
+
+A pass only redeems once the previous one has lapsed, so the next renewal is scheduled *after* the expiry NYT reports. It is never a fixed offset: a renewal that fires exactly one minute after expiry, every day at the same second, is a bot signal on its own.
+
+```yaml
+    environment:
+      # Random delay after the pass expires before the next renewal (minutes).
+      # Defaults: 5 to 120. Set both equal for a fixed offset.
+      # - RENEWAL_DELAY_MIN_MINUTES=5
+      # - RENEWAL_DELAY_MAX_MINUTES=120
+      # Optional: never renew inside this window (local TZ, may wrap midnight).
+      # A run that lands inside is moved to a random point just after it ends.
+      # - RENEWAL_QUIET_HOURS=00:30-07:00
+```
+
+Failed attempts retry on the same jittered cadence. The manual *Renew now* button runs immediately. `GET /api/status` shows the active cadence settings.
 
 ### Proxy egress (keep your home IP out of it)
 

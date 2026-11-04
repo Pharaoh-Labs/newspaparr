@@ -6,10 +6,11 @@ public functions:
   utcnow()           — naive UTC datetime (replaces deprecated datetime.utcnow)
   execute_renewal()  — run one renewal, write the log, schedule next, notify
 """
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import logging
 
+import cadence
 import egress
 import notify
 from extensions import db
@@ -110,8 +111,7 @@ def execute_renewal(account):
     except egress.EgressError as e:
         msg = f"Egress blocked: {e}"
         _record_renewal_log(account, success=False, message=msg, duration_ms=0)
-        account.next_renewal = (utcnow()
-                                + timedelta(hours=account.effective_renewal_interval, minutes=1))
+        account.next_renewal = cadence.after_interval(account.effective_renewal_interval)
         db.session.commit()
         schedule_account_renewal(account)
         notify.notify_renewal_failed(account.name, msg)
@@ -135,12 +135,13 @@ def execute_renewal(account):
 
     account.last_renewal = utcnow()
     if result.success and result.expiration:
-        account.next_renewal = result.expiration + timedelta(minutes=1)
+        # A pass only redeems once the previous one has lapsed, so the next run is
+        # the expiry plus a random delay (see cadence.py), never a fixed +1 minute.
+        account.next_renewal = cadence.next_run(result.expiration)
     else:
         # Cover both success-without-expiration and any failure — failed
-        # renewals retry on the same cadence as successful ones.
-        account.next_renewal = (utcnow()
-                                + timedelta(hours=account.effective_renewal_interval, minutes=1))
+        # renewals retry on the same (jittered) cadence as successful ones.
+        account.next_renewal = cadence.after_interval(account.effective_renewal_interval)
     db.session.commit()
     schedule_account_renewal(account)
 

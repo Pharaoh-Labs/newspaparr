@@ -28,6 +28,13 @@ services:
       # Optional: behind a reverse proxy
       # - BEHIND_PROXY=true
 
+      # Optional: renewal cadence. Next renewal = pass expiry + a random delay in
+      # this range (minutes); never a fixed offset. Quiet hours (local TZ) push a
+      # renewal that would land inside the window to just after it ends.
+      # - RENEWAL_DELAY_MIN_MINUTES=5
+      # - RENEWAL_DELAY_MAX_MINUTES=120
+      # - RENEWAL_QUIET_HOURS=00:30-07:00
+
       # Optional: proxy egress. Once any lane is configured, the capture browser,
       # the renewal chain and the headless redemption all leave through it and the
       # host's own IP is never used. Each account is pinned to one lane.

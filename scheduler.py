@@ -7,13 +7,11 @@ scheduler itself fires _run_account_renewal() at the scheduled time.
 """
 import atexit
 import logging
-from datetime import timedelta
-
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.date import DateTrigger
-from apscheduler.triggers.interval import IntervalTrigger
 
+import cadence
 from extensions import db
 from models import Account
 
@@ -72,9 +70,10 @@ def _utcnow_naive():
 def schedule_account_renewal(account) -> None:
     """Schedule (or reschedule) the next renewal job for an account.
 
-    If account.next_renewal is set, fire at that exact time. Otherwise
-    fall back to interval-based firing every effective_renewal_interval
-    hours + 1 minute (the +1m avoids racing the pass expiration)."""
+    If account.next_renewal is set, fire at that exact time. Otherwise pick
+    one now: effective_renewal_interval hours from now plus the cadence
+    jitter (never a bare interval, which would fire at the same second every
+    day)."""
     if not account.active:
         return
     if _scheduler is None:
@@ -86,28 +85,22 @@ def schedule_account_renewal(account) -> None:
     except Exception:
         pass  # job didn't exist, fine
 
-    if account.next_renewal:
-        # Stored as naive UTC; APScheduler wants tz-aware
-        next_run = (account.next_renewal if account.next_renewal.tzinfo
-                    else pytz.UTC.localize(account.next_renewal))
-        _scheduler.add_job(
-            func=_run_account_renewal,
-            trigger=DateTrigger(run_date=next_run),
-            id=job_id, args=[account.id], replace_existing=True,
-        )
-        logger.info(f"📅 Scheduled renewal for {account.name} at {next_run}")
-    else:
-        _scheduler.add_job(
-            func=_run_account_renewal,
-            trigger=IntervalTrigger(
-                hours=account.effective_renewal_interval, minutes=1,
-            ),
-            id=job_id, args=[account.id], replace_existing=True,
-        )
-        logger.info(
-            f"⏰ Scheduled renewal for {account.name} "
-            f"every {account.effective_renewal_interval}h"
-        )
+    if not account.next_renewal:
+        account.next_renewal = cadence.after_interval(account.effective_renewal_interval)
+        try:
+            db.session.commit()
+        except Exception as e:  # noqa: BLE001 — scheduling still works from the in-memory value
+            logger.warning(f"Could not persist next_renewal for {account.name}: {e}")
+
+    # Stored as naive UTC; APScheduler wants tz-aware
+    next_run = (account.next_renewal if account.next_renewal.tzinfo
+                else pytz.UTC.localize(account.next_renewal))
+    _scheduler.add_job(
+        func=_run_account_renewal,
+        trigger=DateTrigger(run_date=next_run),
+        id=job_id, args=[account.id], replace_existing=True,
+    )
+    logger.info(f"📅 Scheduled renewal for {account.name} at {next_run}")
 
 
 def _run_account_renewal(account_id: int) -> None:
@@ -132,9 +125,7 @@ def _run_account_renewal(account_id: int) -> None:
         except Exception as e:  # noqa: BLE001 — keep the loop alive
             logger.error(f"Scheduled renewal crashed for {account.name}: {e}")
             try:
-                account.next_renewal = _utcnow_naive() + timedelta(
-                    hours=account.effective_renewal_interval, minutes=1,
-                )
+                account.next_renewal = cadence.after_interval(account.effective_renewal_interval)
                 db.session.commit()
                 logger.info(
                     f"⏰ Scheduled retry for {account.name} via interval despite crash")

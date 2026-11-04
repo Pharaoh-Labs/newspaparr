@@ -14,6 +14,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from extensions import db, migrate
 from forms import AccountForm, EditAccountForm, LibraryForm
+import cadence
 import egress
 from helpers import account_lane, execute_renewal, utcnow
 from icons import icon
@@ -295,7 +296,7 @@ def add_account():
             active=form.active.data
         )
         
-        account.next_renewal = utcnow() + timedelta(hours=account.effective_renewal_interval)
+        account.next_renewal = cadence.after_interval(account.effective_renewal_interval)
         
         db.session.add(account)
         db.session.commit()
@@ -347,7 +348,7 @@ def edit_account(id):
         account.active = form.active.data
         
         # Update next renewal time since renewal hours may have changed
-        account.next_renewal = utcnow() + timedelta(hours=account.effective_renewal_interval)
+        account.next_renewal = cadence.after_interval(account.effective_renewal_interval)
         
         db.session.commit()
 
@@ -572,6 +573,7 @@ def api_status():
         'scheduled_jobs': _scheduler_mod.job_count(),
         'system_status': 'running',
         'egress': egress.status(),
+        'cadence': cadence.describe(),
         'last_check': utcnow().isoformat()
     }
 
