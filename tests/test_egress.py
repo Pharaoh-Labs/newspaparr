@@ -379,3 +379,48 @@ def test_paste_cookies_pins_and_repins_lane(app_client, monkeypatch):
         with app_mod.app.app_context():
             app_mod.db.session.delete(app_mod.db.session.get(Account, acct_id))
             app_mod.db.session.commit()
+
+
+def test_browser_note_recorded_when_not_on_confirmation_page(monkeypatch, tmp_path):
+    """The browser's final URL is logged and, when it is not purchase-confirmation,
+    carried into the renewal message with the ip_token query stripped."""
+    import renewer
+
+    class FakeProc:
+        def terminate(self): pass
+        def wait(self, timeout=None): pass
+        def kill(self): pass
+
+    profile = tmp_path / "profile"
+    (profile / "Default").mkdir(parents=True)
+    import capture_session
+    monkeypatch.setattr(capture_session, "_find_chrome_binary", lambda: "/bin/true")
+    monkeypatch.setattr(capture_session, "profile_dir_for", lambda _id: str(profile))
+    monkeypatch.setattr(renewer.subprocess, "Popen", lambda args, **kw: FakeProc())
+    monkeypatch.setattr(renewer, "_wait_for_cdp", lambda port, timeout=15: "ws://x")
+    monkeypatch.setattr(renewer, "extract_cookies", lambda *_a, **_k: [])
+    monkeypatch.setattr(renewer, "_navigate_and_await_redemption",
+                        lambda *a, **k: "https://www.nytimes.com/subscription/ip-pass?ip_token=SECRET")
+    seen = {}
+
+    def fake_verify(account_id, provisional, *, started, proxy=None, browser_note=None):
+        seen["note"] = browser_note
+        return renewer._result(renewer.State.RENEWED,
+                               "NYT pass redeemed" + (f" ({browser_note})" if browser_note else ""),
+                               started=started)
+
+    monkeypatch.setattr(renewer, "_verify_subscription", fake_verify)
+    provisional = renewer.RenewalResult(renewer.State.RENEWED, "x",
+                                        final_url="https://www.nytimes.com/x?ip_token=1")
+    res = renewer._redeem_via_browser(provisional, account_id=7,
+                                      started=renewer.datetime.now(renewer.timezone.utc))
+    assert seen["note"] == "browser ended at https://www.nytimes.com/subscription/ip-pass"
+    assert "SECRET" not in res.message and res.message.startswith("NYT pass redeemed (browser ended at")
+
+    # Landing on purchase-confirmation leaves the message clean.
+    monkeypatch.setattr(renewer, "_navigate_and_await_redemption",
+                        lambda *a, **k: "https://www.nytimes.com/subscription/purchase-confirmation")
+    res = renewer._redeem_via_browser(provisional, account_id=7,
+                                      started=renewer.datetime.now(renewer.timezone.utc))
+    assert seen["note"] is None and res.message == "NYT pass redeemed"
+    assert renewer._loggable_url(None) == "unknown"

@@ -244,6 +244,7 @@ def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
     tmp_dir = None
     stderr_file = None
     forwarder: Optional[LocalForwarder] = None
+    browser_note: Optional[str] = None
     try:
         chrome_bin = _find_chrome_binary()
         profile_src = profile_dir_for(account_id)
@@ -299,6 +300,13 @@ def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
             cookies = extract_cookies(account_id, "nyt")
             result_url = _navigate_and_await_redemption(
                 ws_url, provisional.final_url, timeout=45, cookies=cookies)
+            # Always record where the browser ended up. Without this a 45 s
+            # timeout on a "pass still active" page and a DataDome challenge
+            # are indistinguishable in the logs (seen 2026-11-03).
+            ended_at = _loggable_url(result_url)
+            logger.info("Browser renewal: browser ended at %s", ended_at)
+            if not (result_url and "purchase-confirmation" in result_url):
+                browser_note = f"browser ended at {ended_at}"
 
             if result_url and "auth/login" in result_url:
                 return _result(State.SESSION_EXPIRED,
@@ -328,7 +336,8 @@ def _redeem_via_browser(provisional: RenewalResult, *, account_id: int,
     # Authoritative check: query the NYT data-layer for the live subscription
     # state and expiry. This handles both "purchase-confirmation" (new
     # redemption) and "pass_still_active" (already-active pass) as success.
-    return _verify_subscription(account_id, provisional, started=started, proxy=proxy)
+    return _verify_subscription(account_id, provisional, started=started, proxy=proxy,
+                                browser_note=browser_note)
 
 
 _NYT_DATA_LAYER = "https://a.nytimes.com/svc/nyt/data-layer"
@@ -339,7 +348,8 @@ _VERIFY_RETRY_DELAYS = (5, 10, 20)  # seconds between attempts when cache is sta
 
 def _verify_subscription(account_id: int, provisional: RenewalResult,
                           *, started: datetime,
-                          proxy: Optional[str] = None) -> RenewalResult:
+                          proxy: Optional[str] = None,
+                          browser_note: Optional[str] = None) -> RenewalResult:
     """Query the NYT data-layer API to confirm the subscription is active and
     obtain the real expiry date.
 
@@ -349,6 +359,7 @@ def _verify_subscription(account_id: int, provisional: RenewalResult,
     the subscription-type check fails, or if all retries see a stale date (in
     which case we use +24 h as a conservative fallback)."""
     renewal_progress.update(account_id, "Verifying the pass with NYT…")
+    redeemed_msg = "NYT pass redeemed" + (f" ({browser_note})" if browser_note else "")
     cookies = extract_cookies(account_id, "nyt")
     if not cookies:
         return _result(State.UNVERIFIED,
@@ -407,7 +418,7 @@ def _verify_subscription(account_id: int, provisional: RenewalResult,
                     parsed = _parse_iso(end)
                     if parsed and parsed > now:
                         logger.info("Data-layer confirmed ADA expiry: %s", parsed.isoformat())
-                        return _result(State.RENEWED, "NYT pass redeemed",
+                        return _result(State.RENEWED, redeemed_msg,
                                        expiration=parsed,
                                        final_url=provisional.final_url, started=started)
                     logger.debug("Data-layer ADA endDate is stale: %s", end)
@@ -416,7 +427,7 @@ def _verify_subscription(account_id: int, provisional: RenewalResult,
     # All retries exhausted without a fresh date; use +24 h as safe fallback.
     logger.warning("Data-layer ADA endDate still stale after %d attempts; using +24h fallback",
                    attempts)
-    return _result(State.RENEWED, "NYT pass redeemed",
+    return _result(State.RENEWED, redeemed_msg,
                    expiration=datetime.now(timezone.utc) + timedelta(hours=24),
                    final_url=provisional.final_url, started=started)
 
@@ -570,6 +581,16 @@ def _navigate_and_await_redemption(ws_url: str, ippass_url: str,
             pass
 
     return None
+
+
+def _loggable_url(url: Optional[str]) -> str:
+    """URL without query/fragment (the ippass query carries the one-shot
+    ip_token), capped so a log line or activity message stays readable."""
+    if not url:
+        return "unknown"
+    parts = urlparse(url)
+    short = f"{parts.scheme}://{parts.netloc}{parts.path}" if parts.netloc else url
+    return short if len(short) <= 120 else short[:117] + "..."
 
 
 # ---------- response classification (phase 1) ----------

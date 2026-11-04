@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Jittered renewal cadence (`cadence.py`): the next renewal is the reported pass expiry plus a random delay (`RENEWAL_DELAY_MIN_MINUTES`/`RENEWAL_DELAY_MAX_MINUTES`, default 5 to 120) instead of a fixed +1 minute, retries use the same jitter, and `RENEWAL_QUIET_HOURS` keeps renewals out of a nightly window in the local timezone. `/api/status` reports the cadence.
 
 ### Changed
+- The redemption browser's final URL is now logged (query stripped) and, when it is not the purchase-confirmation page, noted in the activity message as `browser ended at …`, so a harmless "pass still active" page and a bot challenge are distinguishable after the fact.
 - Accounts without a stored next-renewal time now get a concrete, jittered run time instead of an APScheduler interval trigger (which fired at the same second every day).
 
 ### Fixed
