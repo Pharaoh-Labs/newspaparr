@@ -109,6 +109,7 @@ How lanes work:
 - **Rotate** (the arrows icon next to an account, shown when there is more than one lane) moves the account to the least-used other lane and sends you straight to re-capture. Do this when a lane gets blocked.
 - A lane removed from the list is re-chosen at the next capture; a renewal on a vanished lane fails with `Egress blocked` instead of silently going direct.
 - Static residential or ISP proxies work best. Rotating-IP proxies defeat the pin. SOCKS proxies are not supported.
+- Already have a `proxies.txt` for another tool? Bind-mount it read-only and point `PROXIES_FILE` at it (see the compose example); the file is re-read on every use, so edits apply without a restart.
 - Chromium cannot take proxy credentials on its command line, so Newspaparr runs a loopback-only forwarder per browser launch that adds them. WebRTC is restricted to proxied traffic so it cannot reveal the real IP.
 
 > **Important:** library card passwords are encrypted at rest with a key derived from `SECRET_KEY` (Fernet, AES-128-CBC + HMAC-SHA256). If you lose or rotate `SECRET_KEY`, every stored library password becomes unreadable and you'll need to re-enter them. Keep `data/secret_key` in your backup set if you back up `data/`.
